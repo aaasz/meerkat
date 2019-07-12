@@ -1,0 +1,17 @@
+syntax = "proto2";
+
+package replication;
+
+message Request {
+     required bytes op = 1;
+     required uint64 clientid = 2;
+     required uint64 clientreqid = 3;
+     optional uint64 clienttxn_nr = 4;
+}
+
+message UnloggedRequest {
+     required bytes op = 1;
+     required uint64 clientid = 2;
+     required uint64 clientreqid = 3;
+     optional uint64 clienttxn_nr = 4;
+}
