@@ -83,6 +83,9 @@ class AppContext {
         struct {
             // current req_handle
             erpc::ReqHandle *req_handle;
+            std::vector<uint64_t> latency_get;
+            std::vector<uint64_t> latency_prepare;
+            std::vector<uint64_t> latency_commit;
         } server;
 
         // common to both servers and clients

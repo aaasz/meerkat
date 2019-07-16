@@ -464,7 +464,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
     kill_tasks = []
     for (replica_index, server) in enumerate(sorted(list(servers.keys()), key=lambda h: h.hostname)[:2*parameters.f + 1]):
         cmd = [
-            "sudo kill -9 `pgrep meerkat_server`",
+            "sudo kill -INT `pgrep meerkat_server`",
         ]
 
         # Record (and print) the command we run, so that we can re-run it later

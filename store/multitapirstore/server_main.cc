@@ -36,17 +36,22 @@
 #include <cstdlib>
 #include <iostream>
 #include <thread>
+#include <csignal>
 
 #include "store/common/flags.h"
 
 using namespace std;
 
+// TODO: better way to print stats
+static FastTransport *last_transport;
 
 void server_thread_func(multitapirstore::Server *server,
       transport::Configuration config) {
     std::string local_uri = config.replica(FLAGS_replicaIndex).host + ":" + 
                             config.replica(FLAGS_replicaIndex).port;
     FastTransport *transport = new FastTransport(local_uri, FLAGS_numServerThreads, 2, false);
+
+    last_transport = transport;
 
     replication::ir::IRReplica *irReplica = new replication::ir::IRReplica(
       config, FLAGS_replicaIndex,
@@ -56,9 +61,18 @@ void server_thread_func(multitapirstore::Server *server,
     transport->Run();
 }
 
+void signal_handler( int signal_num ) {
+   last_transport->Stop();
+
+   // terminate program
+   exit(signal_num);
+}
+
 int
 main(int argc, char **argv)
 {
+    signal(SIGINT, signal_handler);
+
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     // TODO(mwhittaker): Make command line flags.

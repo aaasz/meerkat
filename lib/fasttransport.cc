@@ -57,6 +57,10 @@ using std::pair;
 
 #define FASTTRANSPORT_MEASURE_TIMES false
 
+#ifdef  FASTTRANSPORT_MEASURE_TIMES
+static constexpr double kAppLatFac = 100.0;        // Precision factor for latency
+#endif
+
 erpc::Nexus *nexus;
 static std::mutex fasttransport_lock;
 static volatile bool fasttransport_initialized = false;
@@ -132,7 +136,7 @@ static void fasttransport_rpc_response(void *_context, void *) {
 
 #if FASTTRANSPORT_MEASURE_TIMES
     clock_gettime(CLOCK_REALTIME, &e);
-    fprintf(stderr, "fasttransport_rpc_response cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
+    //printf("fasttransport_rpc_response cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
 #endif
 }
 
@@ -160,7 +164,15 @@ static void fasttransport_rpc_request(erpc::ReqHandle *req_handle, void *_contex
 
 #if FASTTRANSPORT_MEASURE_TIMES
     clock_gettime(CLOCK_REALTIME, &e);
-    fprintf(stderr, "fasttransport_rpc_request cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
+    // update latency vector
+    double lat_us = (e.tv_nsec-s.tv_nsec)/1000.0 * kAppLatFac;
+    if (sz == 152)
+        c->server.latency_get.push_back(static_cast<uint64_t>(lat_us));
+    else if (sz >= 316)
+        c->server.latency_prepare.push_back(static_cast<size_t>(lat_us));
+    else if (sz == 88)
+        c->server.latency_commit.push_back(static_cast<size_t>(lat_us));
+    //printf("fasttransport_rpc_request cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
 #endif
 }
 
@@ -189,10 +201,10 @@ FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_po
         evthread_make_base_notifiable(eventBase);
 
         // signals must be registered only on one eventBase
-        signalEvents.push_back(evsignal_new(eventBase, SIGTERM,
-                SignalCallback, this));
-        signalEvents.push_back(evsignal_new(eventBase, SIGINT,
-                SignalCallback, this));
+        // signalEvents.push_back(evsignal_new(eventBase, SIGTERM,
+        //         SignalCallback, this));
+        // signalEvents.push_back(evsignal_new(eventBase, SIGINT,
+        //         SignalCallback, this));
 
         for (event *x : signalEvents) {
             event_add(x, NULL);
@@ -274,7 +286,7 @@ bool FastTransport::SendMessageToReplica(TransportReceiver *src,
 
 #if FASTTRANSPORT_MEASURE_TIMES
     clock_gettime(CLOCK_REALTIME, &e);
-    fprintf(stderr, "SendMessageToReplica cost; latency = %.02f us\n", (e.tv_nsec-s.tv_nsec)/1000.0);
+    //printf("SendMessageToReplica cost; latency = %.02f us\n", (e.tv_nsec-s.tv_nsec)/1000.0);
 #endif
 
     return ret;
@@ -299,7 +311,7 @@ bool FastTransport::SendMessageToAll(TransportReceiver *src,
 
 #if FASTTRANSPORT_MEASURE_TIMES
     clock_gettime(CLOCK_REALTIME, &e);
-    fprintf(stderr, "SendMessageToAll cost; latency = %.02f us\n", (e.tv_nsec-s.tv_nsec)/1000.0);
+    //printf("SendMessageToAll cost; latency = %.02f us\n", (e.tv_nsec-s.tv_nsec)/1000.0);
 #endif
 
     return ret;
@@ -307,7 +319,6 @@ bool FastTransport::SendMessageToAll(TransportReceiver *src,
 
 // Assume we use this only to send replies
 bool FastTransport::SendMessage(TransportReceiver *src, const Message &m) {
-
     // we get here from fasttransport_rpc_request
     auto &resp = c->server.req_handle->pre_resp_msgbuf;
     size_t msgLen = SerializeMessage(m, reinterpret_cast<char *>(resp.buf));
@@ -363,6 +374,52 @@ void FastTransport::Run() {
 void FastTransport::Stop() {
     Debug("Stopping transport!");
     stop = true;
+#if FASTTRANSPORT_MEASURE_TIMES
+    fprintf(stderr, "Fast transport statistics:\n");
+    std::sort(c->server.latency_get.begin(), c->server.latency_get.end());
+    std::sort(c->server.latency_prepare.begin(), c->server.latency_prepare.end());
+    std::sort(c->server.latency_commit.begin(), c->server.latency_commit.end());
+
+    uint64_t latency_get_size = c->server.latency_get.size();
+    uint64_t latency_prepare_size = c->server.latency_prepare.size();
+    uint64_t latency_commit_size = c->server.latency_prepare.size();
+
+    double latency_get_50 = c->server.latency_get[(latency_get_size*50)/100] / kAppLatFac;
+    double latency_get_99 = c->server.latency_get[(latency_get_size*99)/100] / kAppLatFac;
+
+    double latency_prepare_50 = c->server.latency_prepare[(latency_prepare_size*50)/100] / kAppLatFac;
+    double latency_prepare_99 = c->server.latency_prepare[(latency_prepare_size*99)/100] / kAppLatFac;
+
+    double latency_commit_50 = c->server.latency_commit[(latency_commit_size*50)/100] / kAppLatFac;
+    double latency_commit_99 = c->server.latency_commit[(latency_commit_size*99)/100] / kAppLatFac;
+
+    uint64_t latency_get_sum = std::accumulate(c->server.latency_get.begin(), c->server.latency_get.end(), 0);
+    uint64_t latency_prepare_sum = std::accumulate(c->server.latency_prepare.begin(), c->server.latency_prepare.end(), 0);
+    uint64_t latency_commit_sum = std::accumulate(c->server.latency_commit.begin(), c->server.latency_commit.end(), 0);
+
+    double latency_get_avg = latency_get_sum/latency_get_size/kAppLatFac;
+    double latency_prepare_avg = latency_prepare_sum/latency_prepare_size/kAppLatFac;
+    double latency_commit_avg = latency_commit_sum/latency_commit_size/kAppLatFac;
+
+    fprintf(stderr, "Get latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_get_size,
+            latency_get_avg,
+            latency_get_50,
+            latency_get_99);
+
+    fprintf(stderr, "Prepare latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_prepare_size,
+            latency_prepare_avg,
+            latency_prepare_50,
+            latency_prepare_99);
+
+    fprintf(stderr, "Commit latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_commit_size,
+            latency_commit_avg,
+            latency_commit_50,
+            latency_commit_99);
+
+#endif
 }
 
 int FastTransport::Timer(uint64_t ms, timer_callback_t cb) {
