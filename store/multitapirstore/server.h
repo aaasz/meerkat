@@ -80,6 +80,12 @@ public:
 
     void Load(const string &key, const string &value, const Timestamp timestamp) override;
 
+    void PrintStats();
+
+    std::vector<uint64_t> latency_get;
+    std::vector<uint64_t> latency_prepare;
+    std::vector<uint64_t> latency_commit;
+
 private:
     std::unique_ptr<ThreadSafeKvs> kvs;
     std::unique_ptr<Store> store;

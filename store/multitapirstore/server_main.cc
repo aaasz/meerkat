@@ -44,6 +44,8 @@ using namespace std;
 
 // TODO: better way to print stats
 static FastTransport *last_transport;
+static replication::ir::IRReplica *last_irReplica;
+static multitapirstore::ServerIR *global_server;
 
 void server_thread_func(multitapirstore::Server *server,
       transport::Configuration config) {
@@ -58,11 +60,16 @@ void server_thread_func(multitapirstore::Server *server,
       (FastTransport *)transport,
       (multitapirstore::ServerIR *)server);
 
+    last_irReplica = irReplica;
+    global_server = (multitapirstore::ServerIR *)server;
+
     transport->Run();
 }
 
 void signal_handler( int signal_num ) {
    last_transport->Stop();
+   last_irReplica->PrintStats();
+   global_server->PrintStats();
 
    // terminate program
    exit(signal_num);

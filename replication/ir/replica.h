@@ -71,6 +71,8 @@ public:
     void HandleFinalizeConsensus(const proto::FinalizeConsensusMessage &msg);
     void HandleUnlogged(const proto::UnloggedRequestMessage &msg);
 
+    void PrintStats();
+
 //    void HandleDoViewChange(const TransportAddress &remote,
 //                            const proto::DoViewChangeMessage &msg);
 //    void HandleStartView(const TransportAddress &remote,
@@ -100,6 +102,10 @@ private:
     int myIdx; // Replica index into config.
     Transport *transport;
     IRAppReplica *app;
+
+    std::vector<uint64_t> latency_get;
+    std::vector<uint64_t> latency_prepare;
+    std::vector<uint64_t> latency_commit;
 
     // Transactions are fully partitioned across cores => no synchronization needed;
     // The record now maintains just one entry per transaction (as opposed to

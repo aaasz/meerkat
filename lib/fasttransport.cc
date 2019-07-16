@@ -57,7 +57,7 @@ using std::pair;
 
 #define FASTTRANSPORT_MEASURE_TIMES false
 
-#ifdef  FASTTRANSPORT_MEASURE_TIMES
+#if  FASTTRANSPORT_MEASURE_TIMES
 static constexpr double kAppLatFac = 100.0;        // Precision factor for latency
 #endif
 

@@ -36,10 +36,16 @@
 #include <iostream>
 #include <thread>
 
+#define MULTITAPIRSTORE_MEASURE__TIMES true
+
 namespace multitapirstore {
 
 using namespace std;
 using namespace proto;
+
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+static constexpr double kAppLatFac = 100.0;        // Precision factor for latency
+#endif
 
 /*******************************************************
  IR App calls
@@ -49,6 +55,9 @@ ServerIR::ExecInconsistentUpcall(txnid_t txn_id,
                                RecordEntryIR *crt_txn_state,
                                const string &str1)
 {
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+    struct timespec s, e;
+#endif
     Debug("Received Inconsistent Request: %s",  str1.c_str());
 
     Request request;
@@ -63,7 +72,15 @@ ServerIR::ExecInconsistentUpcall(txnid_t txn_id,
             break;
         }
         if (crt_txn_state->txn_status != COMMITTED)
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+            { clock_gettime(CLOCK_REALTIME, &s);
+#endif
             store->Commit(txn_id, crt_txn_state->ts, crt_txn_state->txn);
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+            clock_gettime(CLOCK_REALTIME, &e);
+            double lat_us = (e.tv_nsec-s.tv_nsec)/1000.0 * kAppLatFac;
+            latency_commit.push_back(static_cast<uint64_t>(lat_us)); }
+#endif
         crt_txn_state->txn_status = COMMITTED;
         break;
     case multitapirstore::proto::Request::ABORT:
@@ -86,6 +103,9 @@ ServerIR::ExecConsensusUpcall(txnid_t txn_id,
                             RecordEntryIR *crt_txn_state,
                             const string &str1, string &str2)
 {
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+    struct timespec s, e;
+#endif
     Debug("Received Consensus Request: %s", str1.c_str());
 
     Request request;
@@ -102,10 +122,19 @@ ServerIR::ExecConsensusUpcall(txnid_t txn_id,
             crt_txn_state->txn = Transaction(request.prepare().txn());
             crt_txn_state->ts = Timestamp(request.prepare().timestamp());
             //Debug("Prepare at timestamp: %lu", crt_txn_state->ts.getTimestamp());
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+            clock_gettime(CLOCK_REALTIME, &s);
+#endif
             status = store->Prepare(txn_id,
                                     crt_txn_state->txn,
                                     Timestamp(request.prepare().timestamp()),
                                     proposed);
+
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+            clock_gettime(CLOCK_REALTIME, &e);
+            double lat_us = (e.tv_nsec-s.tv_nsec)/1000.0 * kAppLatFac;
+            latency_prepare.push_back(static_cast<uint64_t>(lat_us));
+#endif
             reply.set_status(status);
             if (proposed.isValid()) {
                 proposed.serialize(reply.mutable_timestamp());
@@ -129,6 +158,9 @@ ServerIR::ExecConsensusUpcall(txnid_t txn_id,
 void
 ServerIR::UnloggedUpcall(txnid_t txn_id, const string &str1, string &str2)
 {
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+    struct timespec s, e;
+#endif
     Debug("Received Unlogged Request: %s", str1.c_str());
 
     Request request;
@@ -150,7 +182,15 @@ ServerIR::UnloggedUpcall(txnid_t txn_id, const string &str1, string &str2)
             }
         } else {
             pair<Timestamp, string> val;
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+            clock_gettime(CLOCK_REALTIME, &s);
+#endif
             status = store->Get(txn_id, request.get().key(), val);
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+            clock_gettime(CLOCK_REALTIME, &e);
+            double lat_us = (e.tv_nsec-s.tv_nsec)/1000.0 * kAppLatFac;
+            latency_get.push_back(static_cast<uint64_t>(lat_us));
+#endif
             if (status == 0) {
                 reply.set_value(val.second);
                 val.first.serialize(reply.mutable_timestamp());
@@ -203,6 +243,54 @@ void
 ServerIR::Load(const string &key, const string &value, const Timestamp timestamp)
 {
     store->Load(key, value, timestamp);
+}
+
+void
+ServerIR::PrintStats() {
+#if  MULTITAPIRSTORE_MEASURE__TIMES
+    std::sort(latency_get.begin(), latency_get.end());
+    std::sort(latency_prepare.begin(), latency_prepare.end());
+    std::sort(latency_commit.begin(), latency_commit.end());
+
+    uint64_t latency_get_size = latency_get.size();
+    uint64_t latency_prepare_size = latency_prepare.size();
+    uint64_t latency_commit_size = latency_prepare.size();
+
+    double latency_get_50 = latency_get[(latency_get_size*50)/100] / kAppLatFac;
+    double latency_get_99 = latency_get[(latency_get_size*99)/100] / kAppLatFac;
+
+    double latency_prepare_50 = latency_prepare[(latency_prepare_size*50)/100] / kAppLatFac;
+    double latency_prepare_99 = latency_prepare[(latency_prepare_size*99)/100] / kAppLatFac;
+
+    double latency_commit_50 = latency_commit[(latency_commit_size*50)/100] / kAppLatFac;
+    double latency_commit_99 = latency_commit[(latency_commit_size*99)/100] / kAppLatFac;
+
+    uint64_t latency_get_sum = std::accumulate(latency_get.begin(), latency_get.end(), 0);
+    uint64_t latency_prepare_sum = std::accumulate(latency_prepare.begin(), latency_prepare.end(), 0);
+    uint64_t latency_commit_sum = std::accumulate(latency_commit.begin(), latency_commit.end(), 0);
+
+    double latency_get_avg = latency_get_sum/latency_get_size/kAppLatFac;
+    double latency_prepare_avg = latency_prepare_sum/latency_prepare_size/kAppLatFac;
+    double latency_commit_avg = latency_commit_sum/latency_commit_size/kAppLatFac;
+
+    fprintf(stderr, "Get latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_get_size,
+            latency_get_avg,
+            latency_get_50,
+            latency_get_99);
+
+    fprintf(stderr, "Prepare latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_prepare_size,
+            latency_prepare_avg,
+            latency_prepare_50,
+            latency_prepare_99);
+
+    fprintf(stderr, "Commit latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_commit_size,
+            latency_commit_avg,
+            latency_commit_50,
+            latency_commit_99);
+#endif
 }
 
 } // namespace multitapirstore
