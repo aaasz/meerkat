@@ -33,22 +33,7 @@
 #include "lib/assert.h"
 #include "lib/transport.h"
 
-TransportReceiver::~TransportReceiver()
-{
-    delete this->myAddress;
-}
-
-void
-TransportReceiver::SetAddress(const TransportAddress *addr)
-{
-    this->myAddress = addr;
-}
-
-const TransportAddress &
-TransportReceiver::GetAddress()
-{
-    return *(this->myAddress);
-}
+TransportReceiver::~TransportReceiver(){}
 
 Timeout::Timeout(Transport *transport, uint64_t ms, timer_callback_t cb)
     : transport(transport), ms(ms), cb(cb)

@@ -77,9 +77,9 @@ public:
         error_continuation_t error_continuation = nullptr,
         uint32_t timeout = DEFAULT_UNLOGGED_OP_TIMEOUT);
     virtual void ReceiveMessage(
-        const TransportAddress &remote,
         const string &type,
-        const string &data) override;
+        const string &data,
+        bool &unblock) override;
     virtual void InvokeInconsistent(
         uint64_t txn_nr,
         uint32_t core_id,
@@ -231,17 +231,18 @@ protected:
     void HandleFastPathConsensus(
         const uint64_t reqid,
         const std::map<int, proto::ReplyConsensusMessage> &msgs,
-        PendingConsensusRequest *req);
+        PendingConsensusRequest *req,
+        bool &unblock);
 
     void ResendConfirmation(const uint64_t reqId, bool isConsensus);
-    void HandleInconsistentReply(const TransportAddress &remote,
-                                 const proto::ReplyInconsistentMessage &msg);
-    void HandleConsensusReply(const TransportAddress &remote,
-                              const proto::ReplyConsensusMessage &msg);
-    void HandleConfirm(const TransportAddress &remote,
-                       const proto::ConfirmMessage &msg);
-    void HandleUnloggedReply(const TransportAddress &remote,
-                             const proto::UnloggedReplyMessage &msg);
+    void HandleInconsistentReply(const proto::ReplyInconsistentMessage &msg,
+                                 bool &unblock);
+    void HandleConsensusReply(const proto::ReplyConsensusMessage &msg,
+                              bool &unblock);
+    void HandleConfirm(const proto::ConfirmMessage &msg,
+                       bool &unblock);
+    void HandleUnloggedReply(const proto::UnloggedReplyMessage &msg,
+                             bool &unblock);
     void UnloggedRequestTimeoutCallback(const uint64_t reqId);
 };
 

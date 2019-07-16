@@ -62,20 +62,14 @@ public:
     ~IRReplica();
 
     // Message handlers.
-    void ReceiveMessage(const TransportAddress &remote,
-                        const std::string &type, const std::string &data);
-    void HandleMessage(const TransportAddress &remote,
-                       const std::string &type, const std::string &data);
-    void HandleProposeInconsistent(const TransportAddress &remote,
-                                   const proto::ProposeInconsistentMessage &msg);
-    void HandleFinalizeInconsistent(const TransportAddress &remote,
-                                    const proto::FinalizeInconsistentMessage &msg);
-    void HandleProposeConsensus(const TransportAddress &remote,
-                                const proto::ProposeConsensusMessage &msg);
-    void HandleFinalizeConsensus(const TransportAddress &remote,
-                                 const proto::FinalizeConsensusMessage &msg);
-    void HandleUnlogged(const TransportAddress &remote,
-                        const proto::UnloggedRequestMessage &msg);
+    void ReceiveMessage(const std::string &type, const std::string &data,
+                        bool &unblock);
+    void HandleMessage(const std::string &type, const std::string &data);
+    void HandleProposeInconsistent(const proto::ProposeInconsistentMessage &msg);
+    void HandleFinalizeInconsistent(const proto::FinalizeInconsistentMessage &msg);
+    void HandleProposeConsensus(const proto::ProposeConsensusMessage &msg);
+    void HandleFinalizeConsensus(const proto::FinalizeConsensusMessage &msg);
+    void HandleUnlogged(const proto::UnloggedRequestMessage &msg);
 
 //    void HandleDoViewChange(const TransportAddress &remote,
 //                            const proto::DoViewChangeMessage &msg);

@@ -55,13 +55,13 @@
 
 using std::pair;
 
+#define FASTTRANSPORT_MEASURE_TIMES false
+
 erpc::Nexus *nexus;
 static std::mutex fasttransport_lock;
 static volatile bool fasttransport_initialized = false;
 // Used to assign increasing thread_ids, used as rpc object IDs
 static uint8_t fasttransport_thread_counter;
-
-struct timeval t0, t1;
 
 static size_t SerializeMessage(const ::google::protobuf::Message &m,
       char *out) {
@@ -113,30 +113,35 @@ static void DecodePacket(const char *buf, size_t sz, string &type, string &msg) 
 
 // Function called when we received a response to an
 // RPC we sent on this transport
-static void fasttransport_rpc_response(void *_context, void *) { 
+static void fasttransport_rpc_response(void *_context, void *) {
+
+#if FASTTRANSPORT_MEASURE_TIMES
+    struct timespec s, e;
+    clock_gettime(CLOCK_REALTIME, &s);
+#endif
+
     auto *c = static_cast<AppContext *>(_context);
     const auto &resp_msgbuf = c->client.resp_msgbuf;
 
     std::string msgType, msg;
     size_t sz = resp_msgbuf.get_data_size();
 
-    gettimeofday(&t0, NULL);
     DecodePacket((char*)resp_msgbuf.buf, sz, msgType, msg);
-    gettimeofday(&t1, NULL);
 
-    fprintf(stderr, "Decode message, size =  %d, latency = %lu us\n", sz, (t1.tv_sec - t0.tv_sec)*1000000 + (t1.tv_usec - t0.tv_usec));
+    c->receiver->ReceiveMessage(msgType, msg, c->unblock);
 
-    FastTransportAddress a;
-    gettimeofday(&t0, NULL);
-    c->receiver->ReceiveMessage(a, msgType, msg);
-    gettimeofday(&t1, NULL);
-
-    fprintf(stderr, "ReceiveMessage cost; size =  %d, latency = %lu us\n", sz, (t1.tv_sec - t0.tv_sec)*1000000 + (t1.tv_usec - t0.tv_usec));
-
+#if FASTTRANSPORT_MEASURE_TIMES
+    clock_gettime(CLOCK_REALTIME, &e);
+    fprintf(stderr, "fasttransport_rpc_response cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
+#endif
 }
 
 // Function called when we received an RPC request 
 static void fasttransport_rpc_request(erpc::ReqHandle *req_handle, void *_context) {
+#if FASTTRANSPORT_MEASURE_TIMES
+    struct timespec s, e;
+    clock_gettime(CLOCK_REALTIME, &s);
+#endif
 
     auto *c = static_cast<AppContext *>(_context);
     const auto *req_msgbuf = req_handle->get_req_msgbuf();
@@ -148,26 +153,21 @@ static void fasttransport_rpc_request(erpc::ReqHandle *req_handle, void *_contex
     size_t sz = req_msgbuf->get_data_size();
     char *req = reinterpret_cast<char *>(req_msgbuf->buf);
 
-    gettimeofday(&t0, NULL);
     DecodePacket(req, sz, msgType, msg);
-    gettimeofday(&t1, NULL);
-
-    fprintf(stderr, "Decode message, size =  %d, latency = %lu us\n", sz, (t1.tv_sec - t0.tv_sec)*1000000 + (t1.tv_usec - t0.tv_usec));
-
     Debug("Received message, msgType = %s", msgType.c_str());
 
-    FastTransportAddress a;
+    c->receiver->ReceiveMessage(msgType, msg, c->unblock);
 
-    gettimeofday(&t0, NULL);
-    c->receiver->ReceiveMessage(a, msgType, msg);
-    gettimeofday(&t1, NULL);
-
-    fprintf(stderr, "ReceiveMessage cost; size =  %d, latency = %lu us\n", sz, (t1.tv_sec - t0.tv_sec)*1000000 + (t1.tv_usec - t0.tv_usec));
+#if FASTTRANSPORT_MEASURE_TIMES
+    clock_gettime(CLOCK_REALTIME, &e);
+    fprintf(stderr, "fasttransport_rpc_request cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
+#endif
 }
 
-FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_port)
+FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_port, bool blocking)
     : nthreads(nthreads),
-      phy_port(phy_port) {
+      phy_port(phy_port),
+      blocking(blocking) {
 
     // The first thread to grab the lock initializes the transport
     fasttransport_lock.lock();
@@ -178,7 +178,7 @@ FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_po
         evthread_make_base_notifiable(eventBase);
     } else {
         // Setup libevent
-        evthread_use_pthreads(); // TODO: do we really need this even
+        //evthread_use_pthreads(); // TODO: do we really need this even
                                  // when we manipulate one eventbase
                                  // per thread?
         event_set_log_callback(LogCallback);
@@ -201,23 +201,17 @@ FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_po
         // Setup eRPC
         Debug("Creating nexus objects with local_uri = %s", local_uri.c_str());
         nexus = new erpc::Nexus(local_uri, 0, 0);
-        fasttransport_thread_counter = 0;
-        fasttransport_initialized = true;
-
         nexus->register_req_func(reqType, fasttransport_rpc_request,
                             erpc::ReqFuncType::kForeground);
+
+        fasttransport_thread_counter = 0;
+        fasttransport_initialized = true;
     }
 
     fasttransport_lock.unlock();
 }
 
 FastTransport::~FastTransport() {
-    // event_base_loopbreak(libeventBase);
-
-    // for (auto kv : timers) {
-    //     delete kv.second;
-    // }
-
 }
 
 void FastTransport::Register(TransportReceiver *receiver,
@@ -235,11 +229,12 @@ void FastTransport::Register(TransportReceiver *receiver,
 
     c = new AppContext();
     c->receiver = receiver;
+    c->unblock = false;
     this->replicaIdx = replicaIdx;
     this->config = new transport::Configuration(config);
 }
 
-bool FastTransport::SendMessageToReplica(TransportReceiver *src,
+bool FastTransport::SendMessageInternal(TransportReceiver *src,
       int replicaIdx, const Message &m) {
 
     erpc::MsgBuffer &req_msgbuf = c->client.req_msgbuf;
@@ -247,7 +242,6 @@ bool FastTransport::SendMessageToReplica(TransportReceiver *src,
 
     // Serialize message
     //std::unique_ptr<char[]> unique_buf;
-    
 
     size_t msgLen = SerializeMessage(m, reinterpret_cast<char *>(req_msgbuf.buf));
 
@@ -258,32 +252,66 @@ bool FastTransport::SendMessageToReplica(TransportReceiver *src,
                           &c->client.resp_msgbuf, fasttransport_rpc_response,
                           nullptr);
 
-    Debug("SendMessageToReplica request enqueued", msgLen);
+    Debug("SendMessageInternal request enqueued", msgLen);
     return true;
+}
+
+bool FastTransport::SendMessageToReplica(TransportReceiver *src,
+      int replicaIdx, const Message &m) {
+#if FASTTRANSPORT_MEASURE_TIMES
+    struct timespec s, e;
+    clock_gettime(CLOCK_REALTIME, &s);
+#endif
+
+    bool ret = SendMessageInternal(src, replicaIdx, m);
+
+    if (ret && blocking) {
+        while (!c->unblock) {
+            c->rpc->run_event_loop_once();
+        }
+        c->unblock = false;
+    }
+
+#if FASTTRANSPORT_MEASURE_TIMES
+    clock_gettime(CLOCK_REALTIME, &e);
+    fprintf(stderr, "SendMessageToReplica cost; latency = %.02f us\n", (e.tv_nsec-s.tv_nsec)/1000.0);
+#endif
+
+    return ret;
 }
 
 bool FastTransport::SendMessageToAll(TransportReceiver *src,
       const Message &m) {
+#if FASTTRANSPORT_MEASURE_TIMES
+    struct timespec s, e;
+    clock_gettime(CLOCK_REALTIME, &s);
+#endif
 
     // TODO: send to all, not just replica 0
-    SendMessageToReplica(src, 0, m);
-    return true;
+    bool ret = SendMessageInternal(src, 0, m);
+
+    if (ret && blocking) {
+        while (!c->unblock) {
+            c->rpc->run_event_loop_once();
+        }
+        c->unblock = false;
+    }
+
+#if FASTTRANSPORT_MEASURE_TIMES
+    clock_gettime(CLOCK_REALTIME, &e);
+    fprintf(stderr, "SendMessageToAll cost; latency = %.02f us\n", (e.tv_nsec-s.tv_nsec)/1000.0);
+#endif
+
+    return ret;
 }
 
 // Assume we use this only to send replies
-bool FastTransport::SendMessage(TransportReceiver *src,
-      const TransportAddress &dst, const Message &m) {
+bool FastTransport::SendMessage(TransportReceiver *src, const Message &m) {
 
     // we get here from fasttransport_rpc_request
     auto &resp = c->server.req_handle->pre_resp_msgbuf;
-
-    gettimeofday(&t0, NULL);
     size_t msgLen = SerializeMessage(m, reinterpret_cast<char *>(resp.buf));
-    gettimeofday(&t1, NULL);
     c->rpc->resize_msg_buffer(&resp, msgLen);
-
-    fprintf(stderr, "SendMessage, Serialize cost: size =  %d, latency = %lu us\n", msgLen, (t1.tv_sec - t0.tv_sec)*1000000 + (t1.tv_usec - t0.tv_usec));
-
 
     Debug("SendMessage %s, len = %d", m.GetTypeName().c_str(), msgLen);
 
@@ -326,13 +354,7 @@ void FastTransport::Run() {
 
     Debug("Starting the fast transport!");
 
-    if (replicaIdx == -1) {
-        while(!stop) {
-            event_base_loop(eventBase, EVLOOP_ONCE|EVLOOP_NONBLOCK);
-            c->rpc->run_event_loop_once();
-            //c->rpc->run_event_loop(50);
-        }
-    } else {
+    if (!blocking) {
         while(!stop)
             c->rpc->run_event_loop(500);
     }
@@ -457,21 +479,4 @@ void FastTransport::SignalCallback(evutil_socket_t fd,
     FastTransport *transport = (FastTransport *)arg;
     //event_base_loopbreak(libeventBase);
     transport->Stop();
-}
-
-FastTransportAddress *FastTransportAddress::clone() const {
-    FastTransportAddress *c = new FastTransportAddress(*this);
-    return c;
-}
-
-bool operator==(const FastTransportAddress &a, const FastTransportAddress &b) {
-    return (memcmp(&a.addr, &b.addr, sizeof(a.addr)) == 0);
-}
-
-bool operator!=(const FastTransportAddress &a, const FastTransportAddress &b) {
-    return !(a == b);
-}
-
-bool operator<(const FastTransportAddress &a, const FastTransportAddress &b) {
-    return (memcmp(&a.addr, &b.addr, sizeof(a.addr)) < 0);
 }

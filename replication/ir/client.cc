@@ -38,10 +38,13 @@
 #include "replication/ir/client.h"
 #include "replication/ir/ir-proto.pb.h"
 
+#include <sys/time.h>
 #include <math.h>
 
 namespace replication {
 namespace ir {
+
+struct timeval t0, t1;
 
 using namespace std;
 
@@ -131,8 +134,8 @@ IRClient::SendInconsistent(const PendingInconsistentRequest *req)
     reqMsg.mutable_req()->set_clienttxn_nr(req->clienttxn_nr);
 
     //txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
+    req->timer->Start();
     if (transport->SendMessageToAll(this, reqMsg)) {
-        req->timer->Start();
     } else {
         Warning("Could not send inconsistent request to replicas");
         pendingReqs.erase(req->clientReqId);
@@ -169,6 +172,7 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
                                   decide,
                                   error_continuation);
     pendingReqs[reqId] = req;
+    // TODO: how do we deal with timeouts? (do we need to patch eRPC?)
     req->transition_to_slow_path_timer->Start();
     SendConsensus(req);
 }
@@ -183,8 +187,8 @@ IRClient::SendConsensus(const PendingConsensusRequest *req)
     reqMsg.mutable_req()->set_clienttxn_nr(req->clienttxn_nr);
 
     //txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
+    req->timer->Start();
     if (transport->SendMessageToAll(this, reqMsg)) {
-        req->timer->Start();
     } else {
         Warning("Could not send consensus request to replicas");
         pendingReqs.erase(req->clientReqId);
@@ -221,14 +225,20 @@ IRClient::InvokeUnlogged(uint64_t txn_nr,
     reqMsg.mutable_req()->set_clientreqid(reqId);
     reqMsg.mutable_req()->set_clienttxn_nr(txn_nr);
 
+    // TODO: find a way to get sending errors (the eRPC's enqueue_request
+    // function does not return errors)
+    // TODO: deal with timeouts?
+    pendingReqs[reqId] = req;
+    transport->SendMessageToReplica(this, replicaIdx, reqMsg);
+
     //txnid_t txn_id = std::make_pair(clientid, txn_nr);
-    if (transport->SendMessageToReplica(this, replicaIdx, reqMsg)) {
-        req->timer->Start();
-        pendingReqs[reqId] = req;
-    } else {
-        Warning("Could not send unlogged request to replica");
-        delete req;
-    }
+    // if (transport->SendMessageToReplica(this, replicaIdx, reqMsg)) {
+    //     req->timer->Start();
+    //     pendingReqs[reqId] = req;
+    // } else {
+    //     Warning("Could not send unlogged request to replica");
+    //     delete req;
+    // }
 }
 
 void
@@ -242,7 +252,6 @@ IRClient::ResendInconsistent(const uint64_t reqId)
 void
 IRClient::ResendConsensus(const uint64_t reqId)
 {
-
     Warning("Client timeout; resending consensus request: %lu", reqId);
     SendConsensus((PendingConsensusRequest *)pendingReqs[reqId]);
 }
@@ -329,7 +338,8 @@ void IRClient::HandleSlowPathConsensus(
 void IRClient::HandleFastPathConsensus(
     const uint64_t req_nr,
     const std::map<int, proto::ReplyConsensusMessage> &msgs,
-    PendingConsensusRequest *req)
+    PendingConsensusRequest *req,
+    bool &unblock)
 {
     ASSERT(msgs.size() >= req->superQuorumSize);
     Debug("Handling fast path for request %lu.", req_nr);
@@ -359,9 +369,9 @@ void IRClient::HandleFastPathConsensus(
         // the client will immediately send the inconsistent request to commit/abort
 
         // Set up a new timeout for the finalize phase.
-        req->timer = std::unique_ptr<Timeout>(new Timeout(
-             transport, 500,
-             [this, req_nr]() { ResendConfirmation(req_nr, true); }));
+        // req->timer = std::unique_ptr<Timeout>(new Timeout(
+        //      transport, 500,
+        //      [this, req_nr]() { ResendConfirmation(req_nr, true); }));
 
         // Asynchronously send the finalize message.
         // proto::FinalizeConsensusMessage response;
@@ -384,7 +394,9 @@ void IRClient::HandleFastPathConsensus(
         if (!req->continuationInvoked) {
             req->continuation(req->request, req->decideResult);
             req->continuationInvoked = true;
+            unblock = true;
         }
+        delete req;
         return;
     }
 
@@ -450,9 +462,9 @@ IRClient::ResendConfirmation(const uint64_t req_nr, bool isConsensus)
 }
 
 void
-IRClient::ReceiveMessage(const TransportAddress &remote,
-                         const string &type,
-                         const string &data)
+IRClient::ReceiveMessage(const string &type,
+                         const string &data,
+                         bool &unblock)
 {
     proto::ReplyInconsistentMessage replyInconsistent;
     proto::ReplyConsensusMessage replyConsensus;
@@ -461,24 +473,24 @@ IRClient::ReceiveMessage(const TransportAddress &remote,
 
     if (type == replyInconsistent.GetTypeName()) {
         replyInconsistent.ParseFromString(data);
-        HandleInconsistentReply(remote, replyInconsistent);
+        HandleInconsistentReply(replyInconsistent, unblock);
     } else if (type == replyConsensus.GetTypeName()) {
         replyConsensus.ParseFromString(data);
-        HandleConsensusReply(remote, replyConsensus);
+        HandleConsensusReply(replyConsensus, unblock);
     } else if (type == confirm.GetTypeName()) {
         confirm.ParseFromString(data);
-        HandleConfirm(remote, confirm);
+        HandleConfirm(confirm, unblock);
     } else if (type == unloggedReply.GetTypeName()) {
         unloggedReply.ParseFromString(data);
-        HandleUnloggedReply(remote, unloggedReply);
+        HandleUnloggedReply(unloggedReply, unblock);
     } else {
-        Client::ReceiveMessage(remote, type, data);
+        Client::ReceiveMessage(type, data, unblock);
     }
 }
 
 void
-IRClient::HandleInconsistentReply(const TransportAddress &remote,
-                                  const proto::ReplyInconsistentMessage &msg)
+IRClient::HandleInconsistentReply(const proto::ReplyInconsistentMessage &msg,
+                                  bool &unblock)
 {
     uint64_t req_nr = msg.opid().clientreq_nr();
     auto it = pendingReqs.find(req_nr);
@@ -510,6 +522,7 @@ IRClient::HandleInconsistentReply(const TransportAddress &remote,
         // TODO: This will unblock blockingBegin in shardclient.cc; shouldn't we unblock that
         // earlier, after consensus operation finished?
         req->continuation(req->request, "");
+        unblock = true;
         pendingReqs.erase(it);
         delete req;
 //        if (!req->continuationInvoked) {
@@ -536,8 +549,8 @@ IRClient::HandleInconsistentReply(const TransportAddress &remote,
 }
 
 void
-IRClient::HandleConsensusReply(const TransportAddress &remote,
-                               const proto::ReplyConsensusMessage &msg)
+IRClient::HandleConsensusReply(const proto::ReplyConsensusMessage &msg,
+                               bool &unblock)
 {
     uint64_t req_nr = msg.opid().clientreq_nr();
     Debug(
@@ -586,13 +599,13 @@ IRClient::HandleConsensusReply(const TransportAddress &remote,
     } else if (req->on_slow_path && msgs.size() >= req->quorumSize) {
         HandleSlowPathConsensus(req_nr, msgs, false, req);
     } else if (!req->on_slow_path && msgs.size() >= req->superQuorumSize) {
-        HandleFastPathConsensus(req_nr, msgs, req);
+        HandleFastPathConsensus(req_nr, msgs, req, unblock);
     }
 }
 
 void
-IRClient::HandleConfirm(const TransportAddress &remote,
-                        const proto::ConfirmMessage &msg)
+IRClient::HandleConfirm(const proto::ConfirmMessage &msg,
+                        bool &unblock)
 {
     uint64_t req_nr = msg.opid().clientreq_nr();
     auto it = pendingReqs.find(req_nr);
@@ -644,8 +657,8 @@ IRClient::HandleConfirm(const TransportAddress &remote,
 }
 
 void
-IRClient::HandleUnloggedReply(const TransportAddress &remote,
-                              const proto::UnloggedReplyMessage &msg)
+IRClient::HandleUnloggedReply(const proto::UnloggedReplyMessage &msg,
+                              bool &unblock)
 {
     uint64_t req_nr = msg.clientreq_nr();
     auto it = pendingReqs.find(req_nr);
@@ -661,6 +674,8 @@ IRClient::HandleUnloggedReply(const TransportAddress &remote,
     pendingReqs.erase(it);
     // invoke application callback
     req->continuation(req->request, msg.reply());
+    unblock = true;
+
     delete req;
 }
 

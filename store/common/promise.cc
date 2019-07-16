@@ -59,22 +59,22 @@ Promise::GetTimeout()
 void
 Promise::ReplyInternal(int r)
 {
-    done = true;
+//    done = true;
     reply = r;
-    cv.notify_all();
+//    cv.notify_all();
 }
 
 void
 Promise::Reply(int r)
 {
-    lock_guard<mutex> l(lock);
+//    lock_guard<mutex> l(lock);
     ReplyInternal(r);
 }
 
 void
 Promise::Reply(int r, Timestamp t)
 {
-    lock_guard<mutex> l(lock);
+//    lock_guard<mutex> l(lock);
     timestamp = t;
     ReplyInternal(r);
 }
@@ -82,7 +82,7 @@ Promise::Reply(int r, Timestamp t)
 void
 Promise::Reply(int r, string v)
 {
-    lock_guard<mutex> l(lock);
+//    lock_guard<mutex> l(lock);
     value = v;
     ReplyInternal(r);
 }
@@ -90,7 +90,7 @@ Promise::Reply(int r, string v)
 void
 Promise::Reply(int r, Timestamp t, string v)
 {
-    lock_guard<mutex> l(lock);
+//    lock_guard<mutex> l(lock);
     value = v;
     timestamp = t;
     ReplyInternal(r);
@@ -100,29 +100,29 @@ Promise::Reply(int r, Timestamp t, string v)
 int
 Promise::GetReply()
 {
-    unique_lock<mutex> l(lock);
-    while(!done) {
-        cv.wait(l);
-    }
+    // unique_lock<mutex> l(lock);
+    // while(!done) {
+    //     cv.wait(l);
+    // }
     return reply;
 }
 
 Timestamp
 Promise::GetTimestamp()
 {
-    unique_lock<mutex> l(lock);
-    while(!done) {
-        cv.wait(l);
-    }
+    // unique_lock<mutex> l(lock);
+    // while(!done) {
+    //     cv.wait(l);
+    // }
     return timestamp;
 }
     
 string
 Promise::GetValue()
 {
-    unique_lock<mutex> l(lock);
-    while(!done) {
-        cv.wait(l);
-    }
+    // unique_lock<mutex> l(lock);
+    // while(!done) {
+    //     cv.wait(l);
+    // }
     return value;
 }

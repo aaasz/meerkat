@@ -40,13 +40,6 @@
 #define REPLICA_NETWORK_DELAY 0
 #define READ_AT_LEADER 1
 
-class TransportAddress
-{
-public:
-    virtual ~TransportAddress() { }
-    virtual TransportAddress *clone() const = 0;
-};
-
 class TransportReceiver
 {
 public:
@@ -54,14 +47,7 @@ public:
     
 
     virtual ~TransportReceiver();
-    virtual void SetAddress(const TransportAddress *addr);
-    virtual const TransportAddress& GetAddress();
-
-    virtual void ReceiveMessage(const TransportAddress &remote,
-                                const string &type, const string &data) = 0;
-    
-protected:
-    const TransportAddress *myAddress;
+    virtual void ReceiveMessage(const string &type, const string &data, bool &unblock) = 0;
 };
 
 typedef std::function<void (void)> timer_callback_t;
@@ -75,8 +61,7 @@ public:
     virtual void Register(TransportReceiver *receiver,
                           const transport::Configuration &config,
                           int replicaIdx) = 0;
-    virtual bool SendMessage(TransportReceiver *src, const TransportAddress &dst,
-                             const Message &m) = 0;
+    virtual bool SendMessage(TransportReceiver *src, const Message &m) = 0;
     virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const Message &m) = 0;
     virtual bool SendMessageToAll(TransportReceiver *src, const Message &m) = 0;
     virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;

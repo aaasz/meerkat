@@ -41,9 +41,9 @@ namespace multitapirstore {
 
 using namespace std;
 
-void client_thread_func(std::string replScheme, Transport *transport) {
-    ((FastTransport *)transport)->Run();
-}
+// void client_thread_func(std::string replScheme, Transport *transport) {
+//     ((FastTransport *)transport)->Run();
+// }
 
 Client::Client(const string configFile, int nsthreads, int nShards,
                int closestReplica,
@@ -71,15 +71,15 @@ Client::Client(const string configFile, int nsthreads, int nShards,
     Debug("Initializing Tapir client with id [%lu] %lu", client_id, nshards);
 
     /* Start a client for each shard. */
+    // TODO: assume just one shard for now!
 
     shard_clients.reserve(nshards);
     bclient.reserve(nshards);
     // for (uint64_t i = 0; i < nshards; i++) {
     //     string shardConfigPath = configPath + to_string(i) + ".config";
-    //TODO: Assume a single shard for now!
     if (replScheme == "ir") {
         // TODO: this is hardcoded
-        transport = new FastTransport("10.100.1.16:31850", nsthreads, 4);
+        transport = new FastTransport("10.100.1.16:31850", nsthreads, 4, true);
         shard_clients.push_back(std::unique_ptr<TxnClient>(
           new ShardClientIR(configFile, transport, client_id, 0,
                                  closestReplica, replicated)));
@@ -94,15 +94,17 @@ Client::Client(const string configFile, int nsthreads, int nShards,
 //               new ShardClientVR(shardConfigPath, transport, client_id, i,
 //                                 closestReplica, replicated)));
     } else
-    NOT_REACHABLE();
+        NOT_REACHABLE();
 
-    bclient.push_back(std::unique_ptr<BufferClient>(
-      new BufferClient(shard_clients[0].get())));
+    bclient.push_back(std::unique_ptr<BufferClient>(new BufferClient(shard_clients[0].get())));
 
     Debug("Tapir client [%lu] created! %lu %lu", client_id, nshards, bclient.size());
 
-    /* Run the transport in a new thread. */
-    transport_thread = std::thread(client_thread_func, replScheme, transport);
+    /* Run the transport */
+    // this operation will not be blocking, as we started a blocking transport
+    ((FastTransport *)transport)->Run();
+
+    // transport_thread = std::thread(client_thread_func, replScheme, transport);
 }
 
 Client::~Client()
@@ -282,7 +284,7 @@ Client::Commit()
         Debug("COMMIT [%lu]", t_id);
 
         for (auto p : participants) {
-             bclient[p]->Commit(timestamp);
+            bclient[p]->Commit(timestamp);
         }
         return true;
     }

@@ -31,10 +31,14 @@
 
 #include "store/multitapirstore/shardclient.h"
 
+#include <sys/time.h>
+
 namespace multitapirstore {
 
 using namespace std;
 using namespace proto;
+
+struct timeval t0, t1;
 
 namespace {
 
@@ -94,11 +98,11 @@ ShardClientIR::Begin(uint64_t txn_nr)
     Debug("[shard %i] BEGIN: %lu", shard, txn_nr);
 
     // Wait for any previous pending requests.
-    if (blockingBegin != NULL) {
-        blockingBegin->GetReply();
-        delete blockingBegin;
-        blockingBegin = NULL;
-    }
+    // if (blockingBegin != NULL) {
+    //     blockingBegin->GetReply();
+    //     delete blockingBegin;
+    //     blockingBegin = NULL;
+    // }
 }
 
 void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
@@ -109,13 +113,17 @@ void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
                                      replication::error_continuation_t error_callback) {
 
     Debug("Sending unlogged request to replica %d.", replica);
+    const int timeout = (promise != nullptr) ? promise->GetTimeout() : 1000;
+    waiting = promise;
+    client->InvokeUnlogged(txn_nr, core_id, replica, request_str, callback,
+                           error_callback, timeout);
 
-	const int timeout = (promise != nullptr) ? promise->GetTimeout() : 1000;
-    transport->Timer(0, [=]() {
-        waiting = promise;
-        client->InvokeUnlogged(txn_nr, core_id, replica, request_str, callback,
-                               error_callback, timeout);
-    });
+	// const int timeout = (promise != nullptr) ? promise->GetTimeout() : 1000;
+    // transport->Timer(0, [=]() {
+    //     waiting = promise;
+    //     client->InvokeUnlogged(txn_nr, core_id, replica, request_str, callback,
+    //                            error_callback, timeout);
+    // });
 }
 
 void ShardClientIR::SendConsensus(uint64_t txn_nr, uint32_t core_id, Promise *promise,
@@ -125,12 +133,15 @@ void ShardClientIR::SendConsensus(uint64_t txn_nr, uint32_t core_id, Promise *pr
                                   replication::error_continuation_t error_callback) {
 
     Debug("Sending consensus request to replica %d.", replica);
+    waiting = promise;
+    client->InvokeConsensus(txn_nr, core_id, request_str, decide,
+                            callback, error_callback);
 
-    transport->Timer(0, [=]() {
-        waiting = promise;
-        client->InvokeConsensus(txn_nr, core_id, request_str, decide,
-                                callback, error_callback);
-    });
+    // transport->Timer(0, [=]() {
+    //     waiting = promise;
+    //     client->InvokeConsensus(txn_nr, core_id, request_str, decide,
+    //                             callback, error_callback);
+    // });
 }
 
 void ShardClientIR::SendInconsistent(uint64_t txn_nr, uint32_t core_id,
@@ -139,14 +150,17 @@ void ShardClientIR::SendInconsistent(uint64_t txn_nr, uint32_t core_id,
                                      replication::continuation_t callback,
                                      replication::error_continuation_t error_callback) {
 
-    Debug("Sending inconsistent request to replica %d.", replica);
-    transport->Timer(0, [=]() {
-        // aaasz: client does not need to wait on this promise
-        // TODO: for now we have to, because the transport currently
-        // only supports one outstanding request at a time
-        waiting = promise;
-        client->InvokeInconsistent(txn_nr, core_id, request_str, callback, error_callback);
-    });
+    client->InvokeInconsistent(txn_nr, core_id, request_str,
+                               callback, error_callback);
+
+    // Debug("Sending inconsistent request to replica %d.", replica);
+    // transport->Timer(0, [=]() {
+    //     // aaasz: client does not need to wait on this promise
+    //     // TODO: for now we have to, because the transport currently
+    //     // only supports one outstanding request at a time
+    //     waiting = promise;
+    //     client->InvokeInconsistent(txn_nr, core_id, request_str, callback, error_callback);
+    // });
 }
 
 void
@@ -369,16 +383,19 @@ ShardClientIR::GiveUpTimeout() {
 void
 ShardClientIR::GetCallback(const string &request_str, const string &reply_str)
 {
+
     /* Replies back from a shard. */
     Reply reply;
     reply.ParseFromString(reply_str);
 
-    Debug("[shard %lu:%i] GET callback [%d]", client_id, shard, reply.status());
+    // Debug("[shard %lu:%i] GET callback [%d]", client_id, shard, reply.status());
     if (waiting != NULL) {
         Promise *w = waiting;
         waiting = NULL;
         if (reply.has_timestamp()) {
+            //gettimeofday(&t0, NULL);
             w->Reply(reply.status(), Timestamp(reply.timestamp()), reply.value());
+            //gettimeofday(&t1, NULL);
         } else {
             w->Reply(reply.status(), reply.value());
         }
@@ -414,8 +431,8 @@ ShardClientIR::CommitCallback(const string &request_str, const string &reply_str
     // COMMITs always succeed.
     Debug("[shard %lu:%i] COMMIT callback", client_id, shard);
 
-    ASSERT(blockingBegin != NULL);
-    blockingBegin->Reply(0);
+    // ASSERT(blockingBegin != NULL);
+    // blockingBegin->Reply(0);
 
     if (waiting != NULL) {
         waiting = NULL;
@@ -429,8 +446,8 @@ ShardClientIR::AbortCallback(const string &request_str, const string &reply_str)
     // ABORTs always succeed.
     Debug("[shard %lu:%i] ABORT callback", client_id, shard);
 
-    ASSERT(blockingBegin != NULL);
-    blockingBegin->Reply(0);
+    // ASSERT(blockingBegin != NULL);
+    // blockingBegin->Reply(0);
 
     if (waiting != NULL) {
         waiting = NULL;

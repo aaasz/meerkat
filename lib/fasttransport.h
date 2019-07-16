@@ -35,7 +35,6 @@
 
 #include "lib/configuration.h"
 #include "lib/transport.h"
-#include "lib/transportcommon.h"
 
 #include "rpc.h"
 #include "util/numautils.h"
@@ -87,44 +86,31 @@ class AppContext {
         } server;
 
         // common to both servers and clients
+        bool unblock; // used by the application to unblock the latest request
         TransportReceiver *receiver = nullptr;
         erpc::Rpc<erpc::CTransport> *rpc = nullptr;
-};
-
-class FastTransportAddress : public TransportAddress
-{
-public:
-    FastTransportAddress * clone() const;
-private:
-    sockaddr_in addr;
-    friend class FastTransport;
-    friend bool operator==(const FastTransportAddress &a,
-                           const FastTransportAddress &b);
-    friend bool operator!=(const FastTransportAddress &a,
-                           const FastTransportAddress &b);
-    friend bool operator<(const FastTransportAddress &a,
-                          const FastTransportAddress &b);
 };
 
 class FastTransport : public Transport
 {
 public:
-    FastTransport(std::string local_uri, int nthreads, uint8_t phy_port);
+    FastTransport(std::string local_uri, int nthreads, uint8_t phy_port, bool blocking);
     virtual ~FastTransport();
     void Register(TransportReceiver *receiver,
                   const transport::Configuration &config,
-                  int replicaIdx);
+                  int replicaIdx) override;
     void Run();
     void Wait();
     void Stop();
-    int Timer(uint64_t ms, timer_callback_t cb);
-    bool CancelTimer(int id);
-    void CancelAllTimers();
+    int Timer(uint64_t ms, timer_callback_t cb) override;
+    bool CancelTimer(int id) override;
+    void CancelAllTimers() override;
     
     bool SendMessageToReplica(TransportReceiver *src, int replicaIdx,
                          const Message &m) override;
-    bool SendMessage(TransportReceiver *src, const TransportAddress &dst,
-                const Message &m) override;
+
+    // SendMessage is actuall a reply on the same channel we got the request
+    bool SendMessage(TransportReceiver *src, const Message &m) override;
     bool SendMessageToAll(TransportReceiver *src, const Message &m) override;
 
 private:
@@ -136,6 +122,10 @@ private:
 
     // Index of the replica server
     int replicaIdx;
+
+    // The "blocking" variable puts the transport in a blocking mode:
+    // after sending a request, it block until the application unblocks it
+    bool blocking;
 
     transport::Configuration *config;
 
@@ -152,19 +142,14 @@ private:
     AppContext *c;
     bool stop = false;
 
-    // TODO: transport timers metadata might be shared by
-    // multiple threads and may not scale right now
-    // (right now it's just one thread per transport)
-    // (for IR there's no problem as replicas do not schedule timeouts).
-    // I believe the timers structure can be partitioned; each
-    // transport thread may schedule and cancel timers only
-    // on its own event_base; however, I don't know how to protect
-    // from external threads only schedule timers, like the main client thread
+    // TODO: find some other method to deal with timeouts (hidden in eRPC?)
     std::atomic<int> lastTimerId;
     using timers_map = std::map<int, FastTransportTimerInfo *>;
     timers_map timers;
     std::mutex timers_lock;
 
+    bool SendMessageInternal(TransportReceiver *src, int replicaIdx,
+                         const Message &m);
     void OnTimer(FastTransportTimerInfo *info);
     static void SocketCallback(evutil_socket_t fd,
                                short what, void *arg);
@@ -197,10 +182,5 @@ static void basic_sm_handler(int session_num, erpc::SmEventType sm_event_type,
             erpc::sm_err_type_str(sm_err_type).c_str(),
             c->rpc->sec_since_creation());
 }
-
-struct pthread_args_fast_transport {
-	event_base *e;
-    int fd;
-};
 
 #endif  // _LIB_FASTTRANSPORT_H_

@@ -83,9 +83,9 @@ public:
         error_continuation_t error_continuation = nullptr,
         uint32_t timeout = DEFAULT_UNLOGGED_OP_TIMEOUT) = 0;
 
-    virtual void ReceiveMessage(const TransportAddress &remote,
-                                const string &type,
-                                const string &data);
+    virtual void ReceiveMessage(const string &type,
+                                const string &data,
+                                bool &unblock);
 
 protected:
     transport::Configuration config;

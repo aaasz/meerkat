@@ -11,7 +11,7 @@ EXPAND = lib/tmpl/expand
 
 ERPC_PATH= "/homes/sys/aaasz/eRPC"
 
-CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -O2 -DNASSERT -I $(ERPC_PATH)/src -I /usr/include/dpdk -DDPDK=true -march=native
+CFLAGS := -g -Wall -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -pthread -iquote.obj/gen -Wno-uninitialized -O2 -DNASSERT -I $(ERPC_PATH)/src -I /usr/include/dpdk -DDPDK=true -march=native
 #CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized 
 CXXFLAGS := -g -std=c++0x
 #CXXFLAGS := -g -std=c++0x -fsanitize=thread
