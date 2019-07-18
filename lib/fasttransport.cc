@@ -382,7 +382,7 @@ void FastTransport::Stop() {
 
     uint64_t latency_get_size = c->server.latency_get.size();
     uint64_t latency_prepare_size = c->server.latency_prepare.size();
-    uint64_t latency_commit_size = c->server.latency_prepare.size();
+    uint64_t latency_commit_size = c->server.latency_commit.size();
 
     double latency_get_50 = c->server.latency_get[(latency_get_size*50)/100] / kAppLatFac;
     double latency_get_99 = c->server.latency_get[(latency_get_size*99)/100] / kAppLatFac;

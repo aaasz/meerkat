@@ -51,7 +51,7 @@ void server_thread_func(multitapirstore::Server *server,
       transport::Configuration config) {
     std::string local_uri = config.replica(FLAGS_replicaIndex).host + ":" + 
                             config.replica(FLAGS_replicaIndex).port;
-    FastTransport *transport = new FastTransport(local_uri, FLAGS_numServerThreads, 2, false);
+    FastTransport *transport = new FastTransport(local_uri, FLAGS_numServerThreads, 0, false);
 
     last_transport = transport;
 

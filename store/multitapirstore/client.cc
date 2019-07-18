@@ -79,7 +79,7 @@ Client::Client(const string configFile, int nsthreads, int nShards,
     //     string shardConfigPath = configPath + to_string(i) + ".config";
     if (replScheme == "ir") {
         // TODO: this is hardcoded
-        transport = new FastTransport("10.100.1.16:31850", nsthreads, 4, true);
+        transport = new FastTransport("10.100.1.23:31850", nsthreads, 0, true);
         shard_clients.push_back(std::unique_ptr<TxnClient>(
           new ShardClientIR(configFile, transport, client_id, 0,
                                  closestReplica, replicated)));

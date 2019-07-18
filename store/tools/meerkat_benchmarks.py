@@ -95,7 +95,7 @@ def azure_servers():
 
 def zookeeper_clients():
     return [
-        RemoteHost('10.100.1.16'), # okapi
+        RemoteHost('10.100.5.153'), # vicuna-1g
         #RemoteHost('10.100.1.2'), # anteater
         #RemoteHost('10.100.1.3'), # bongo
         #RemoteHost('10.100.1.4'), # capybara
@@ -124,9 +124,9 @@ def zookeeper_servers():
         #RemoteHost('10.100.1.19') : {'iface'       : 'ens1',
         #                             'irq_numbers' : range(123, 139),
         #                             'start_port'  : 51736}, # rhino
-        RemoteHost('10.100.1.20') : {'iface'       : 'ens1',
+        RemoteHost('10.100.5.174') : {'iface'       : 'ens1',
                                      'irq_numbers' : range(123, 139),
-                                     'start_port'  : 51736}, # sloth
+                                     'start_port'  : 51736}, # tapir-1g
     }
 
 def zookeeper_new_servers():

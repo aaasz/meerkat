@@ -9,13 +9,13 @@ CXX = clang++
 LD = clang++
 EXPAND = lib/tmpl/expand
 
-ERPC_PATH= "/homes/sys/aaasz/eRPC"
+ERPC_PATH= "/biggerraid/users/aaasz/eRPC"
 
-CFLAGS := -g -Wall -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -pthread -iquote.obj/gen -Wno-uninitialized -O2 -DNASSERT -I $(ERPC_PATH)/src -I /usr/include/dpdk -DDPDK=true -march=native
+CFLAGS := -g -Wall -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -pthread -iquote.obj/gen -Wno-uninitialized -O2 -DNASSERT -I $(ERPC_PATH)/src -DRAW=true
 #CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized 
 CXXFLAGS := -g -std=c++0x
 #CXXFLAGS := -g -std=c++0x -fsanitize=thread
-LDFLAGS := -L $(ERPC_PATH)/build -levent_pthreads -lerpc -ldpdk -lnuma -ldl -lgflags
+LDFLAGS := -L $(ERPC_PATH)/build -levent_pthreads -lerpc -lnuma -ldl -lgflags -libverbs
 #LDFLAGS := -levent_pthreads -fsanitize=thread
 ## Debian package: check
 #CHECK_CFLAGS := $(shell pkg-config --cflags check)

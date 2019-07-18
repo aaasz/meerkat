@@ -36,7 +36,7 @@
 #include <iostream>
 #include <thread>
 
-#define MULTITAPIRSTORE_MEASURE__TIMES true
+#define MULTITAPIRSTORE_MEASURE__TIMES false
 
 namespace multitapirstore {
 
