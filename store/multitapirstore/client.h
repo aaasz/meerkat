@@ -42,7 +42,6 @@
 #include "store/common/frontend/client.h"
 #include "store/common/frontend/bufferclient.h"
 #include "store/multitapirstore/shardclient.h"
-#include "store/multitapirstore/multitapir-proto.pb.h"
 
 #include <thread>
 

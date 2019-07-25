@@ -7,6 +7,7 @@
  **********************************************************************/
 
 #include "store/common/transaction.h"
+#include <cstring>
 
 using namespace std;
 
@@ -59,14 +60,14 @@ void Transaction::serialize(char *reqBuf) const {
     for (auto read : readSet) {
         read_ptr->id = read.second.getID();
         read_ptr->timestamp = read.second.getTimestamp();
-        memcpy(read_ptr->key, read.first.c_str(), 64);
+        std::memcpy(read_ptr->key, read.first.c_str(), 64);
         read_ptr++;
     }
 
     auto *write_ptr = reinterpret_cast<write_t *> (read_ptr);
     for (auto write : writeSet) {
-        memcpy(write_ptr->key, write.first.c_str(), 64);
-        memcpy(write_ptr->value, write.second.c_str(), 64);
+        std::memcpy(write_ptr->key, write.first.c_str(), 64);
+        std::memcpy(write_ptr->value, write.second.c_str(), 64);
         write_ptr++;
     }
 }

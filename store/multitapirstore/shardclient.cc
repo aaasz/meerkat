@@ -36,26 +36,6 @@
 namespace multitapirstore {
 
 using namespace std;
-using namespace proto;
-
-struct timeval t0, t1;
-
-namespace {
-
-void ReplyToPromise(const Reply &reply, Promise *promise) {
-    if (reply.has_value() && reply.has_timestamp()) {
-        promise->Reply(reply.status(), reply.timestamp(), reply.value());
-    } else if (reply.has_value()) {
-        promise->Reply(reply.status(), reply.value());
-    } else if (reply.has_timestamp()) {
-        promise->Reply(reply.status(), Timestamp(reply.timestamp()));
-    } else {
-        promise->Reply(reply.status());
-    }
-}
-
-}  // namespace
-
 
 /*******************************************************
  IR Client calls
@@ -102,8 +82,8 @@ void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
                                      uint32_t core_id,
                                      Promise *promise,
                                      const std::string &request_str,
-                                     replication::unlogged_continuation_t callback,
-                                     replication::error_continuation_t error_callback) {
+                                     replication::ir::unlogged_continuation_t callback,
+                                     replication::ir::error_continuation_t error_callback) {
 
     Debug("Sending unlogged request to replica %d.", replica);
     const int timeout = (promise != nullptr) ? promise->GetTimeout() : 1000;
@@ -115,8 +95,8 @@ void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
 void ShardClientIR::SendConsensus(uint64_t txn_nr, uint32_t core_id, Promise *promise,
                                   const Transaction &txn, const Timestamp &timestamp,
                                   replication::ir::decide_t decide,
-                                  replication::consensus_continuation_t callback,
-                                  replication::error_continuation_t error_callback) {
+                                  replication::ir::consensus_continuation_t callback,
+                                  replication::ir::error_continuation_t error_callback) {
 
     Debug("Sending consensus request to replica %d.", replica);
     waiting = promise;
@@ -126,8 +106,8 @@ void ShardClientIR::SendConsensus(uint64_t txn_nr, uint32_t core_id, Promise *pr
 
 void ShardClientIR::SendInconsistent(uint64_t txn_nr, uint32_t core_id,
                                      bool commit,
-                                     replication::inconsistent_continuation_t callback,
-                                     replication::error_continuation_t error_callback) {
+                                     replication::ir::inconsistent_continuation_t callback,
+                                     replication::ir::error_continuation_t error_callback) {
 
     client->InvokeInconsistent(txn_nr, core_id, commit,
                                callback, error_callback);

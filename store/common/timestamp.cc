@@ -63,10 +63,3 @@ Timestamp::isValid() const
 {
     return timestamp > 0 && id > 0;
 }
-
-void
-Timestamp::serialize(TimestampMessage *msg) const
-{
-    msg->set_timestamp(timestamp);
-    msg->set_id(id);
-}

@@ -41,7 +41,6 @@
 #include "store/common/timestamp.h"
 #include "store/common/truetime.h"
 #include "store/multitapirstore/config.h"
-#include "store/multitapirstore/multitapir-proto.pb.h"
 #include "store/multitapirstore/store.h"
 
 namespace multitapirstore {

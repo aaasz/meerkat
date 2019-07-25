@@ -30,30 +30,40 @@
  *
  **********************************************************************/
 
-#include "replication/common/client.h"
-#include "replication/common/request.pb.h"
 #include "lib/assert.h"
 #include "lib/message.h"
 #include "replication/ir/client.h"
-#include "replication/ir/ir-proto.pb.h"
 
 #include <sys/time.h>
 #include <math.h>
 
+#include <random>
+
 namespace replication {
 namespace ir {
-
-struct timeval t0, t1;
 
 using namespace std;
 
 IRClient::IRClient(const transport::Configuration &config,
                    Transport *transport,
                    uint64_t clientid)
-    : Client(config, transport, clientid),
-      lastReqId(0)
-{
+    : config(config),
+      lastReqId(0),
+      transport(transport) {
 
+    this->clientid = clientid;
+    // Randomly generate a client ID
+    // This is surely not the fastest way to get a random 64-bit int,
+    // but it should be fine for this purpose.
+    while (this->clientid == 0) {
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        std::uniform_int_distribution<uint64_t> dis;
+        this->clientid = dis(gen);
+        Debug("IRClient ID: %lu", this->clientid);
+    }
+
+    transport->Register(this, config, -1);
 }
 
 IRClient::~IRClient()
@@ -61,24 +71,6 @@ IRClient::~IRClient()
     for (auto kv : pendingReqs) {
 	delete kv.second;
     }
-}
-
-void
-IRClient::Invoke(const string &request,
-                 continuation_t continuation,
-                 error_continuation_t error_continuation)
-{
-    Panic("Not implemented");
-}
-
-void
-IRClient::InvokeUnlogged(int replicaIdx,
-                         const string &request,
-                         unlogged_continuation_t continuation,
-                         error_continuation_t error_continuation,
-                         uint32_t timeout)
-{
-    Panic("Not implemented");
 }
 
 // TODO: make this more general -- the replication layer must not do the app
@@ -152,8 +144,7 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
                                                     reqBuf->nr_writes * sizeof(write_t));
 }
 
-void
-IRClient::InvokeUnlogged(uint64_t txn_nr,
+void IRClient::InvokeUnlogged(uint64_t txn_nr,
                          uint32_t core_id,
                          int replicaIdx,
                          const string &request,
@@ -194,8 +185,7 @@ void IRClient::ResendConsensusRequest(const uint64_t reqId) {
                                                     reqBuf->nr_writes * sizeof(write_t));
 }
 
-void
-IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
+void IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
     Warning("Client timeout; taking consensus slow path: reqId=%lu", reqId);
     PendingConsensusRequest *req =
         dynamic_cast<PendingConsensusRequest *>(pendingReqs[reqId]);
@@ -217,11 +207,10 @@ IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
 }
 
 void IRClient::HandleSlowPathConsensus(
-    const uint64_t req_nr,
-    const std::map<int, consensus_response_t> &msgs,
-    const bool finalized_result_found,
-    PendingConsensusRequest *req)
-{
+            const uint64_t req_nr,
+            const std::map<int, consensus_response_t> &msgs,
+            const bool finalized_result_found,
+            PendingConsensusRequest *req) {
     ASSERT(finalized_result_found || msgs.size() >= req->quorumSize);
     Debug("Handling slow path for request %lu.", req_nr);
 
@@ -268,11 +257,10 @@ void IRClient::HandleSlowPathConsensus(
 }
 
 void IRClient::HandleFastPathConsensus(
-    const uint64_t req_nr,
-    const std::map<int, consensus_response_t> &msgs,
-    PendingConsensusRequest *req,
-    bool &unblock)
-{
+            const uint64_t req_nr,
+            const std::map<int, consensus_response_t> &msgs,
+            PendingConsensusRequest *req,
+            bool &unblock) {
     ASSERT(msgs.size() >= req->superQuorumSize);
     Debug("Handling fast path for request %lu.", req_nr);
 
@@ -494,9 +482,7 @@ void IRClient::HandleFinalizeConsensusReply(char *respBuf, bool &unblock) {
     }
 }
 
-void
-IRClient::UnloggedRequestTimeoutCallback(const uint64_t req_nr)
-{
+void IRClient::UnloggedRequestTimeoutCallback(const uint64_t req_nr) {
     auto it = pendingReqs.find(req_nr);
     if (it == pendingReqs.end()) {
         Warning("Received unlogged request timeout when no request was pending");

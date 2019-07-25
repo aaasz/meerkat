@@ -1,7 +1,7 @@
 // -*- mode: c++; c-file-style: "k&r"; c-basic-offset: 4 -*-
 /***********************************************************************
  *
- * log.h:
+ * record.h:
  *   a replica's log of pending and committed operations
  *
  * Copyright 2013 Dan R. K. Ports  <drkp@cs.washington.edu>
@@ -39,9 +39,7 @@
 #include "lib/assert.h"
 #include "lib/message.h"
 #include "store/common/transaction.h"
-#include "replication/common/request.pb.h"
 #include "replication/common/viewstamp.h"
-#include "replication/ir/ir-proto.pb.h"
 
 #include <boost/functional/hash.hpp>
 
@@ -49,6 +47,11 @@
 
 namespace replication {
 namespace ir {
+
+enum RecordEntryState {
+    RECORD_STATE_TENTATIVE,
+    RECORD_STATE_FINALIZED
+};
 
 // Each record entry maintains information about
 // a single, uniquely identified, transaction
@@ -72,13 +75,13 @@ struct RecordEntry
     // replication state of the latest request (FINALIZED if we know
     // that at least a majority agree on accepting the operation, and,
     // if it's the case, its result)
-    proto::RecordEntryState state;
+    RecordEntryState state;
     // latest result
     std::string result;
 
     RecordEntry() { result = "";
                     txn_status = NOT_PREPARED;
-                    state = proto::RECORD_STATE_TENTATIVE; }
+                    state = RECORD_STATE_TENTATIVE; }
 
     RecordEntry(const RecordEntry &x)
         : txn_id(x.txn_id),
@@ -91,7 +94,7 @@ struct RecordEntry
     RecordEntry(view_t view, txnid_t txn_id,
                 uint64_t req_nr,
                 TransactionStatus txn_status,
-                proto::RecordEntryState state,
+                RecordEntryState state,
                 //const Request &request,
                 const std::string &result)
         : txn_id(txn_id),
@@ -117,7 +120,6 @@ public:
     //
     // [1]: https://stackoverflow.com/a/3279550/3187068
     Record(){};
-    Record(const proto::RecordProto &record_proto);
     Record(Record &&other) : Record() { swap(*this, other); }
     Record(const Record &) = delete;
     Record &operator=(const Record &) = delete;
@@ -135,24 +137,23 @@ public:
                      txnid_t txn_id,
                      uint64_t req_nr,
                      TransactionStatus txn_status,
-                     proto::RecordEntryState state);
+                     RecordEntryState state);
                      // const Request &request);
     RecordEntry &Add(view_t view,
                      txnid_t txn_id,
                      uint64_t req_nr,
                      TransactionStatus txn_status,
-                     proto::RecordEntryState state,
+                     RecordEntryState state,
                      // const Request &request,
                      const std::string &result);
     RecordEntry *Find(txnid_t txn_id);
-    bool SetStatus(txnid_t txn_id, proto::RecordEntryState state);
+    bool SetStatus(txnid_t txn_id, RecordEntryState state);
     bool SetResult(txnid_t txn_id, const std::string &result);
     bool SetTxnStatus(txnid_t txn_id, TransactionStatus txn_status);
     bool SetReqNr(txnid_t txn_id, uint64_t req_nr);
     // bool SetRequest(txnid_t txn_id, const Request &req);
     void Remove(txnid_t txn_id);
     bool Empty() const;
-    void ToProto(proto::RecordProto *proto) const;
 
     const RecordMap &Entries() const;
 

@@ -40,7 +40,6 @@
 #include "store/common/timestamp.h"
 #include "store/common/transaction.h"
 #include "store/common/frontend/txnclient.h"
-#include "store/multitapirstore/multitapir-proto.pb.h"
 
 #include <map>
 #include <string>
@@ -121,21 +120,21 @@ private:
     void SendUnreplicated(uint64_t txn_nr,
                           uint32_t core_id,
                           Promise *promise, const std::string &request_str,
-                          replication::unlogged_continuation_t callback,
-                          replication::error_continuation_t error_callback);
+                          replication::ir::unlogged_continuation_t callback,
+                          replication::ir::error_continuation_t error_callback);
     void SendInconsistent(uint64_t txn_nr,
                           uint32_t core_id,
                           bool commit,
-                          replication::inconsistent_continuation_t callback,
-                          replication::error_continuation_t error_callback);
+                          replication::ir::inconsistent_continuation_t callback,
+                          replication::ir::error_continuation_t error_callback);
     void SendConsensus(uint64_t txn_nr,
                        uint32_t core_id,
                        Promise *promise,
                        const Transaction &txn,
                        const Timestamp &timestamp,
                        replication::ir::decide_t decide,
-                       replication::consensus_continuation_t callback,
-                       replication::error_continuation_t error_callback);
+                       replication::ir::consensus_continuation_t callback,
+                       replication::ir::error_continuation_t error_callback);
 
     /* Tapir's Decide Function. */
     int MultiTapirDecide(const std::map<int, std::size_t> &results);

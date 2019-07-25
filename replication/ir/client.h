@@ -32,11 +32,9 @@
 #ifndef _IR_CLIENT_H_
 #define _IR_CLIENT_H_
 
-#include "replication/common/client.h"
 #include "replication/common/quorumset.h"
 #include "lib/transport.h"
 #include "lib/configuration.h"
-#include "replication/ir/ir-proto.pb.h"
 #include "store/common/transaction.h"
 
 #include <functional>
@@ -48,27 +46,43 @@
 namespace replication {
 namespace ir {
 
+// A client's request may fail for various reasons. For example, if enough
+// replicas are down, a client's request may time out. An ErrorCode indicates
+// the reason that a client's request failed.
+enum class ErrorCode {
+    // For whatever reason (failed replicas, slow network), the request took
+    // too long and timed out.
+    TIMEOUT,
+
+    // For IR, if a client issues a consensus operation and receives a majority
+    // of replies and confirms in different views, then the operation fails.
+    MISMATCHED_CONSENSUS_VIEWS
+};
+
 using result_set_t = std::map<int, std::size_t>;
 using decide_t = std::function<int(const result_set_t &)>;
+using unlogged_continuation_t =
+    std::function<void(char *respBuf)>;
+using inconsistent_continuation_t =
+    std::function<void(char *respBuf)>;
+using consensus_continuation_t =
+    std::function<void(int decidedStatus)>;
+using continuation_t =
+    std::function<void(const string &request, const string &reply)>;
+using error_continuation_t =
+    std::function<void(const string &request, ErrorCode err)>;
 
-class IRClient : public Client
+
+class IRClient : public TransportReceiver
 {
 public:
+    static const uint32_t DEFAULT_UNLOGGED_OP_TIMEOUT = 1000; // milliseconds
+
     IRClient(const transport::Configuration &config,
              Transport *transport,
              uint64_t clientid = 0);
     virtual ~IRClient();
 
-    virtual void Invoke(
-        const string &request,
-        continuation_t continuation,
-        error_continuation_t error_continuation = nullptr) override;
-    virtual void InvokeUnlogged(
-        int replicaIdx,
-        const string &request,
-        unlogged_continuation_t continuation,
-        error_continuation_t error_continuation = nullptr,
-        uint32_t timeout = DEFAULT_UNLOGGED_OP_TIMEOUT) override;
     virtual void InvokeUnlogged(
         uint64_t txn_nr,
         uint32_t core_id,
@@ -136,7 +150,7 @@ protected:
 
     struct PendingInconsistentRequest : public PendingRequest {
         inconsistent_continuation_t inconsistent_continuation;
-        QuorumSet<viewstamp_t, proto::ReplyInconsistentMessage> inconsistentReplyQuorum;
+        QuorumSet<viewstamp_t, inconsistent_response_t> inconsistentReplyQuorum;
 
         inline PendingInconsistentRequest(uint64_t clientReqId,
                                           uint64_t clienttxn_nr, uint32_t core_id,
@@ -196,6 +210,9 @@ protected:
 
     uint64_t lastReqId;
     std::unordered_map<uint64_t, PendingRequest *> pendingReqs;
+    transport::Configuration config;
+    Transport *transport;
+    uint64_t clientid;
 
     // `TransitionToConsensusSlowPath` is called after a timeout to end the
     // possibility of taking the fast path and transition into taking the slow

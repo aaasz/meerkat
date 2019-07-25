@@ -1,7 +1,7 @@
 // -*- mode: c++; c-file-style: "k&r"; c-basic-offset: 4 -*-
 /***********************************************************************
  *
- * log.h:
+ * record.cc:
  *   a replica's log of pending and committed operations
  *
  * Copyright 2013 Dan R. K. Ports  <drkp@cs.washington.edu>
@@ -37,22 +37,6 @@
 namespace replication {
 namespace ir {
 
-Record::Record(const proto::RecordProto &record_proto) {
-    for (const proto::RecordEntryProto &entry_proto : record_proto.entry()) {
-        const view_t view = entry_proto.view();
-        const txnid_t txn_id = std::make_pair(entry_proto.clientid(),
-                                     entry_proto.clienttxn_nr());
-        const TransactionStatus txn_status = (TransactionStatus) entry_proto.txn_status();
-        const uint64_t req_nr = entry_proto.clientreq_nr();
-        // Request request;
-        // request.set_op(entry_proto.op());
-        // request.set_clientid(entry_proto.clientid());
-        proto::RecordEntryState state = entry_proto.state();
-        const std::string& result = entry_proto.result();
-        Add(view, txn_id, req_nr, txn_status, state, result);
-    }
-}
-
 RecordEntry &
 Record::Add(const RecordEntry& entry) {
     // Make sure this isn't a duplicate
@@ -66,7 +50,7 @@ Record::Add(view_t view,
             txnid_t txn_id,
             uint64_t req_nr,
             TransactionStatus txn_status,
-            proto::RecordEntryState state)
+            RecordEntryState state)
             // const Request &request)
 {
     return Add(RecordEntry(view, txn_id, req_nr, txn_status, state, ""));
@@ -77,7 +61,7 @@ Record::Add(view_t view,
             txnid_t txn_id,
             uint64_t req_nr,
             TransactionStatus txn_status,
-            proto::RecordEntryState state,
+            RecordEntryState state,
             // const Request &request,
             const std::string &result)
 {
@@ -100,7 +84,7 @@ Record::Find(txnid_t txn_id)
 }
 
 bool
-Record::SetStatus(txnid_t txn_id, proto::RecordEntryState state)
+Record::SetStatus(txnid_t txn_id, RecordEntryState state)
 {
     RecordEntry *entry = Find(txn_id);
     if (entry == NULL) {
@@ -169,24 +153,6 @@ bool
 Record::Empty() const
 {
     return entries.empty();
-}
-
-void
-Record::ToProto(proto::RecordProto *proto) const
-{
-    for (const std::pair<const txnid_t, RecordEntry> &p : entries) {
-        const RecordEntry &entry = p.second;
-        proto::RecordEntryProto *entry_proto = proto->add_entry();
-
-        entry_proto->set_view(entry.view);
-        entry_proto->set_clientid(entry.txn_id.first);
-        entry_proto->set_clienttxn_nr(entry.txn_id.second);
-        entry_proto->set_clientreq_nr(entry.req_nr);
-        entry_proto->set_txn_status(entry.txn_status);
-        entry_proto->set_state(entry.state);
-        // entry_proto->set_op(entry.request.op());
-        entry_proto->set_result(entry.result);
-    }
 }
 
 const RecordMap &Record::Entries() const {

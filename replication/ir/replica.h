@@ -16,8 +16,6 @@
 #include "lib/message.h"
 #include "lib/fasttransport.h"
 #include "replication/common/quorumset.h"
-#include "replication/common/replica.h"
-#include "replication/ir/ir-proto.pb.h"
 #include "replication/ir/record.h"
 
 

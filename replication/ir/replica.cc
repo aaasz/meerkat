@@ -18,7 +18,6 @@ namespace replication {
 namespace ir {
 
 using namespace std;
-using namespace proto;
 
 IRReplica::IRReplica(transport::Configuration config, int myIdx,
                      Transport *transport, IRAppReplica *app)
@@ -86,7 +85,7 @@ void IRReplica::HandleInconsistentRequest(char *reqBuf, char *respBuf, size_t &r
     RecordEntry *entry = record.Find(txnid);
     TransactionStatus crt_txn_status;
     view_t crt_txn_view;
-    proto::RecordEntryState crt_txn_state;
+    RecordEntryState crt_txn_state;
     string crt_txn_result;
     if (entry != NULL) {
         if (req->req_nr <= entry->req_nr) {
@@ -150,7 +149,7 @@ void IRReplica::HandleConsensusRequest(char *reqBuf, char *respBuf, size_t &resp
     RecordEntry *entry = record.Find(txnid);
     TransactionStatus crt_txn_status;
     view_t crt_txn_view;
-    proto::RecordEntryState crt_txn_state;
+    RecordEntryState crt_txn_state;
     string crt_txn_result;
     if (entry != NULL) {
         //if (clientreq_nr <= entry->req_nr) {

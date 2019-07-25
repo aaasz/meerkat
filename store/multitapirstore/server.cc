@@ -41,7 +41,6 @@
 namespace multitapirstore {
 
 using namespace std;
-using namespace proto;
 
 /*******************************************************
  IR App calls
