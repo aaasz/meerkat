@@ -11,8 +11,12 @@ EXPAND = lib/tmpl/expand
 
 ERPC_PATH= "/biggerraid/users/aaasz/eRPC"
 
-CFLAGS := -g -Wall -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -pthread -iquote.obj/gen -Wno-uninitialized -O2 -DNASSERT -I $(ERPC_PATH)/src -DRAW=true
-#CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized 
+# -fno-omit-frame-pointer is needed to get accurate flame graphs. See [1] for
+# more information.
+#
+# [1]: http://www.brendangregg.com/perf.html#FlameGraphs
+CFLAGS := -g -Wall -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -pthread -iquote.obj/gen -Wno-uninitialized -O2 -DNASSERT -I $(ERPC_PATH)/src -DRAW=true -fno-omit-frame-pointer
+#CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -fno-omit-frame-pointer
 CXXFLAGS := -g -std=c++0x
 #CXXFLAGS := -g -std=c++0x -fsanitize=thread
 LDFLAGS := -L $(ERPC_PATH)/build -levent_pthreads -lerpc -lnuma -ldl -lgflags -libverbs
@@ -139,7 +143,7 @@ include store/benchmark/Rules.mk
 
 #
 # Protocols
-# 
+#
 PROTOOBJS := $(PROTOS:%.proto=.obj/%.o)
 PROTOSRCS := $(PROTOS:%.proto=.obj/gen/%.pb.cc)
 PROTOHEADERS := $(PROTOS:%.proto=%.pb.h)

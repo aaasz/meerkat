@@ -317,6 +317,17 @@ def run_benchmark(bench_dir, clients, servers, parameters):
     for (replica_index, server) in enumerate(sorted(list(servers.keys()), key=lambda h: h.hostname)[:2*parameters.f + 1]):
         cmd = [
             "sudo",
+            # Here, we use perf to record the performance of the server. `perf
+            # record` writes profiling information to the -o file specified
+            # below. -g enables the collection of stack traces. --timestamp
+            # allows us to use flamescope [1].
+            #
+            # [1]: https://github.com/Netflix/flamescope
+            "perf", "record",
+                "-o", "/mnt/log/server_{}_perf.data".format(replica_index),
+                "-g",
+                "--timestamp",
+                "--",
             #"LD_PRELOAD=/homes/sys/aaasz/tapir/store/tools/Hoard/src/libhoard.so",
             #"DEBUG=all",
             #"valgrind --tool=callgrind --callgrind-out-file=/tmp/callgrind.txt",
@@ -459,7 +470,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
     # Kill the servers.
     print(boxed('Killing servers.'))
-    # We can't use PyREM's stop function because we need sudo priviledges 
+    # We can't use PyREM's stop function because we need sudo priviledges
     #parallel_server_tasks.stop()
     kill_tasks = []
     for (replica_index, server) in enumerate(sorted(list(servers.keys()), key=lambda h: h.hostname)[:2*parameters.f + 1]):
