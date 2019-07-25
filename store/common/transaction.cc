@@ -13,16 +13,16 @@ using namespace std;
 Transaction::Transaction() :
     readSet(), writeSet() { }
 
-Transaction::Transaction(const TransactionMessage &msg) 
-{
-    for (int i = 0; i < msg.readset_size(); i++) {
-        ReadMessage readMsg = msg.readset(i);
-        readSet[readMsg.key()] = Timestamp(readMsg.readtime());
+Transaction::Transaction(uint8_t nr_reads, uint8_t nr_writes, char* buf) {
+    auto *read_ptr = reinterpret_cast<read_t *> (buf);
+    for (int i = 0; i < nr_reads; i++) {
+        readSet[std::string(read_ptr->key, 64)] = Timestamp(read_ptr->timestamp, read_ptr->id);
+        read_ptr++;
     }
 
-    for (int i = 0; i < msg.writeset_size(); i++) {
-        WriteMessage writeMsg = msg.writeset(i);
-        writeSet[writeMsg.key()] = writeMsg.value();
+    auto *write_ptr = reinterpret_cast<write_t *> (read_ptr);
+    for (int i = 0; i < nr_reads; i++) {
+        writeSet[std::string(write_ptr->key, 64)] = std::string(write_ptr->value, 64);
     }
 }
 
@@ -54,19 +54,20 @@ Transaction::addWriteSet(const string &key,
     writeSet[key] = value;
 }
 
-void
-Transaction::serialize(TransactionMessage *msg) const
-{
+void Transaction::serialize(char *reqBuf) const {
+    auto *read_ptr = reinterpret_cast<read_t *> (reqBuf);
     for (auto read : readSet) {
-        ReadMessage *readMsg = msg->add_readset();
-        readMsg->set_key(read.first);
-        read.second.serialize(readMsg->mutable_readtime());
+        read_ptr->id = read.second.getID();
+        read_ptr->timestamp = read.second.getTimestamp();
+        memcpy(read_ptr->key, read.first.c_str(), 64);
+        read_ptr++;
     }
 
+    auto *write_ptr = reinterpret_cast<write_t *> (read_ptr);
     for (auto write : writeSet) {
-        WriteMessage *writeMsg = msg->add_writeset();
-        writeMsg->set_key(write.first);
-        writeMsg->set_value(write.second);
+        memcpy(write_ptr->key, write.first.c_str(), 64);
+        memcpy(write_ptr->value, write.second.c_str(), 64);
+        write_ptr++;
     }
 }
 

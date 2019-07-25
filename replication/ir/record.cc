@@ -44,13 +44,12 @@ Record::Record(const proto::RecordProto &record_proto) {
                                      entry_proto.clienttxn_nr());
         const TransactionStatus txn_status = (TransactionStatus) entry_proto.txn_status();
         const uint64_t req_nr = entry_proto.clientreq_nr();
-
-        Request request;
-        request.set_op(entry_proto.op());
-        request.set_clientid(entry_proto.clientid());
+        // Request request;
+        // request.set_op(entry_proto.op());
+        // request.set_clientid(entry_proto.clientid());
         proto::RecordEntryState state = entry_proto.state();
         const std::string& result = entry_proto.result();
-        Add(view, txn_id, req_nr, txn_status, state, request, result);
+        Add(view, txn_id, req_nr, txn_status, state, result);
     }
 }
 
@@ -67,10 +66,10 @@ Record::Add(view_t view,
             txnid_t txn_id,
             uint64_t req_nr,
             TransactionStatus txn_status,
-            proto::RecordEntryState state,
-            const Request &request)
+            proto::RecordEntryState state)
+            // const Request &request)
 {
-    return Add(RecordEntry(view, txn_id, req_nr, txn_status, state, request, ""));
+    return Add(RecordEntry(view, txn_id, req_nr, txn_status, state, ""));
 }
 
 RecordEntry &
@@ -79,10 +78,10 @@ Record::Add(view_t view,
             uint64_t req_nr,
             TransactionStatus txn_status,
             proto::RecordEntryState state,
-            const Request &request,
+            // const Request &request,
             const std::string &result)
 {
-    RecordEntry &entry = Add(view, txn_id, req_nr, txn_status, state, request);
+    RecordEntry &entry = Add(view, txn_id, req_nr, txn_status, state);
     entry.result = result;
     return entries[txn_id];
 }
@@ -136,17 +135,17 @@ Record::SetResult(txnid_t txn_id, const std::string &result)
     return true;
 }
 
-bool
-Record::SetRequest(txnid_t txn_id, const Request &req)
-{
-    RecordEntry *entry = Find(txn_id);
-    if (entry == NULL) {
-        return false;
-    }
+// bool
+// Record::SetRequest(txnid_t txn_id, const Request &req)
+// {
+//     RecordEntry *entry = Find(txn_id);
+//     if (entry == NULL) {
+//         return false;
+//     }
 
-    entry->request = req;
-    return true;
-}
+//     entry->request = req;
+//     return true;
+// }
 
 bool
 Record::SetReqNr(txnid_t txn_id, const uint64_t req_nr)
@@ -185,7 +184,7 @@ Record::ToProto(proto::RecordProto *proto) const
         entry_proto->set_clientreq_nr(entry.req_nr);
         entry_proto->set_txn_status(entry.txn_status);
         entry_proto->set_state(entry.state);
-        entry_proto->set_op(entry.request.op());
+        // entry_proto->set_op(entry.request.op());
         entry_proto->set_result(entry.result);
     }
 }

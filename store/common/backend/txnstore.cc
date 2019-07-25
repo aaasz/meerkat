@@ -39,6 +39,13 @@ TxnStore::TxnStore() {}
 TxnStore::~TxnStore() {}
 
 int
+TxnStore::Get(const string &key, pair<Timestamp, string> &value)
+{
+    Panic("Unimplemented GET");
+    return 0;
+}
+
+int
 TxnStore::Get(txnid_t txn_id, const string &key, pair<Timestamp, string> &value)
 {
     Panic("Unimplemented GET");

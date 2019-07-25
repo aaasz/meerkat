@@ -58,6 +58,13 @@ enum class ErrorCode {
 
 std::string ErrorCodeToString(ErrorCode err);
 
+
+using unlogged_continuation_t =
+    std::function<void(char *respBuf)>;
+using inconsistent_continuation_t =
+    std::function<void(char *respBuf)>;
+using consensus_continuation_t =
+    std::function<void(int decidedStatus)>;
 using continuation_t =
     std::function<void(const string &request, const string &reply)>;
 using error_continuation_t =
@@ -79,7 +86,7 @@ public:
     virtual void InvokeUnlogged(
         int replicaIdx,
         const string &request,
-        continuation_t continuation,
+        unlogged_continuation_t continuation,
         error_continuation_t error_continuation = nullptr,
         uint32_t timeout = DEFAULT_UNLOGGED_OP_TIMEOUT) = 0;
 

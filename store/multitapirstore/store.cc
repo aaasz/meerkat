@@ -37,6 +37,22 @@ namespace multitapirstore {
 using namespace std;
 
 int
+Store::Get(const string &key, pair<Timestamp,string> &value)
+{
+    Debug("GET %s", key.c_str());
+    if (store->Get(key, &value)) {
+//    store->GetWithLock(key, &value);
+        Debug("Value: \"%s\" at <%lu, %lu>",
+              value.second.c_str(), value.first.getTimestamp(),
+              value.first.getID());
+        return REPLY_OK;
+    } else {
+        Debug("Key \"%s\" not found.", key.c_str());
+        return REPLY_FAIL;
+    }
+}
+
+int
 Store::Get(txnid_t txn_id, const string &key, pair<Timestamp,string> &value)
 {
     Debug("GET %s", key.c_str());

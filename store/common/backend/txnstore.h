@@ -47,6 +47,9 @@ public:
     virtual ~TxnStore();
 
     // add key to read set
+    virtual int Get(const std::string &key,
+        std::pair<Timestamp, std::string> &value);
+
     virtual int Get(txnid_t txn_id, const std::string &key,
         std::pair<Timestamp, std::string> &value);
 

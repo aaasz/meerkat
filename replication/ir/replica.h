@@ -33,15 +33,21 @@ public:
     // Invoke inconsistent operation, no return value
     virtual void ExecInconsistentUpcall(txnid_t txn_id,
                                         RecordEntry *crt_txn_state,
-                                        const string &str1) { };
+                                        bool commit) { };
+
     // Invoke consensus operation
     virtual void ExecConsensusUpcall(txnid_t txn_id,
-                                     RecordEntry *crt_txn_state,
-                                     const string &str1, string &str2) { };
+                            RecordEntry *crt_txn_state,
+                            uint8_t nr_reads,
+                            uint8_t nr_writes,
+                            uint64_t timestamp,
+                            uint64_t id,
+                            char *reqBuf,
+                            char *respBuf, size_t &respLen) { };
+
     // Invoke unreplicated operation
-    virtual void UnloggedUpcall(txnid_t txn_id,
-                                const string &str1,
-                                string &str2) { };
+    virtual void UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) { };
+
     // Sync
     virtual void Sync(const std::map<txnid_t, RecordEntry>& record) { };
     // Merge
@@ -62,42 +68,21 @@ public:
     ~IRReplica();
 
     // Message handlers.
-    void ReceiveMessage(const std::string &type, const std::string &data,
-                        bool &unblock);
-    void HandleMessage(const std::string &type, const std::string &data);
-    void HandleProposeInconsistent(const proto::ProposeInconsistentMessage &msg);
-    void HandleFinalizeInconsistent(const proto::FinalizeInconsistentMessage &msg);
-    void HandleProposeConsensus(const proto::ProposeConsensusMessage &msg);
-    void HandleFinalizeConsensus(const proto::FinalizeConsensusMessage &msg);
-    void HandleUnlogged(const proto::UnloggedRequestMessage &msg);
+    void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) override;
+    void ReceiveResponse(uint8_t reqType, char *respBuf, bool &unblock) override {}; // TODO: for now, replicas
+                                            // do not need to communicate
+                                            // with eachother; they will need
+                                            // to for synchronization
+
+    // new handlers
+    void HandleUnloggedRequest(char *reqBuf, char *respBuf, size_t &respLen);
+    void HandleInconsistentRequest(char *reqBuf, char *respBuf, size_t &respLen);
+    void HandleConsensusRequest(char *reqBuf, char *respBuf, size_t &respLen);
+    void HandleFinalizeConsensusRequest(char *reqBuf, char *respBuf, size_t &respLen);
 
     void PrintStats();
 
-//    void HandleDoViewChange(const TransportAddress &remote,
-//                            const proto::DoViewChangeMessage &msg);
-//    void HandleStartView(const TransportAddress &remote,
-//                         const proto::StartViewMessage &msg);
-
-//    // Timeout handlers.
-//    void HandleViewChangeTimeout();
-
 private:
-//    // Persist `view` and `latest_normal_view` to disk using
-//    // `persistent_view_info`.
-//    void PersistViewInfo();
-//
-//    // Recover `view` and `latest_normal_view` from disk using
-//    // `persistent_view_info`.
-//    void RecoverViewInfo();
-
-//    // Broadcast DO-VIEW-CHANGE messages to all other replicas with our record
-//    // included only in the message to the leader.
-//    void BroadcastDoViewChangeMessages();
-
-    // IrMergeRecords implements Figure 5 of the TAPIR paper.
-//    Record IrMergeRecords(
-//        const std::map<int, proto::DoViewChangeMessage> &records);
-
     transport::Configuration config;
     int myIdx; // Replica index into config.
     Transport *transport;
@@ -113,26 +98,6 @@ private:
     // The upcalls into the application now provide the old state of the
     // transaction and the app computes its next state;
     Record record;
-
-//    ReplicaStatus status;
-
-//    // For the view change and recovery protocol, a replica stores its view and
-//    // latest normal view to disk. We store this info in view and
-//    // latest_normal_view and use persistent_view_info to persist it to disk.
-//    view_t view;
-//    view_t latest_normal_view;
-//    PersistentRegister persistent_view_info;
-//
-//    std::unique_ptr<Timeout> view_change_timeout;
-//
-//    // The leader of a view-change waits to receive a quorum of DO-VIEW-CHANGE
-//    // messages before merging and syncing and sending out START-VIEW messages.
-//    // do_view_change_quorum is used to wait for this quorum.
-//    //
-//    // TODO: Garbage collect old view change quorums. Once we've entered view
-//    // v, we should be able to garbage collect all quorums for views less than
-//    // v.
-//    QuorumSet<view_t, proto::DoViewChangeMessage> do_view_change_quorum;
 };
 
 } // namespace ir

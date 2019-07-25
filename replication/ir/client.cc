@@ -34,7 +34,6 @@
 #include "replication/common/request.pb.h"
 #include "lib/assert.h"
 #include "lib/message.h"
-#include "store/common/transaction.h"
 #include "replication/ir/client.h"
 #include "replication/ir/ir-proto.pb.h"
 
@@ -75,93 +74,54 @@ IRClient::Invoke(const string &request,
 void
 IRClient::InvokeUnlogged(int replicaIdx,
                          const string &request,
-                         continuation_t continuation,
+                         unlogged_continuation_t continuation,
                          error_continuation_t error_continuation,
                          uint32_t timeout)
 {
     Panic("Not implemented");
 }
 
-void
-IRClient::InvokeInconsistent(uint64_t txn_nr,
+// TODO: make this more general -- the replication layer must not do the app
+// message serialization as well
+void IRClient::InvokeInconsistent(uint64_t txn_nr,
                              uint32_t core_id,
-                             const string &request,
-                             continuation_t continuation,
-                             error_continuation_t error_continuation)
-{
+                             bool commit,
+                             inconsistent_continuation_t continuation,
+                             error_continuation_t error_continuation) {
     // TODO: Use error_continuation.
     (void) error_continuation;
 
     // Bump the request ID
     uint64_t reqId = ++lastReqId;
-    // Create new timer
-    // aaasz: we don't need to wait for any replies anymore
-    // TODO - current transport only allows one outstanding
-    //  request at a time
-    auto timer = std::unique_ptr<Timeout>(new Timeout(
-        transport, 500, [this, reqId]() { ResendInconsistent(reqId); }));
-    PendingInconsistentRequest *req =
-      new PendingInconsistentRequest(request,
-                                     reqId,
-                                     txn_nr,
-                                     core_id,
-                                     continuation,
-                                     std::move(timer),
-                                     config.QuorumSize());
-    pendingReqs[reqId] = req;
-    SendInconsistent(req);
-    // proto::ProposeInconsistentMessage reqMsg;
-    // reqMsg.mutable_req()->set_op(request);
-    // reqMsg.mutable_req()->set_clientid(clientid);
-    // reqMsg.mutable_req()->set_clientreqid(reqId);
-    // reqMsg.mutable_req()->set_clienttxn_nr(txn_nr);
 
-    // //txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
-    // if (transport->SendMessageToAll(this, reqMsg)) {
-    //     req->timer->Start();
-    // } else {
-    //     Warning("Could not send inconsistent request to replicas");
-    // }
-}
+    auto *reqBuf = reinterpret_cast<inconsistent_request_t *>(transport->GetRequestBuf());
+    reqBuf->req_nr = reqId;
+    reqBuf->txn_nr = txn_nr;
+    reqBuf->client_id = clientid;
+    reqBuf->commit = commit;
 
-void
-IRClient::SendInconsistent(const PendingInconsistentRequest *req)
-{
-    proto::ProposeInconsistentMessage reqMsg;
-    reqMsg.mutable_req()->set_op(req->request);
-    reqMsg.mutable_req()->set_clientid(clientid);
-    reqMsg.mutable_req()->set_clientreqid(req->clientReqId);
-    reqMsg.mutable_req()->set_clienttxn_nr(req->clienttxn_nr);
-
-    //txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
-    req->timer->Start();
-    if (transport->SendMessageToAll(this, reqMsg)) {
-    } else {
-        Warning("Could not send inconsistent request to replicas");
-        pendingReqs.erase(req->clientReqId);
-        delete req;
-    }
+    // TODO: send to all replicas
+    transport->SendMessageToReplica(inconsistentReqType, 0, sizeof(inconsistent_request_t));
 }
 
 void
 IRClient::InvokeConsensus(uint64_t txn_nr,
                           uint32_t core_id,
-                          const string &request,
+                          const Transaction &txn,
+                          const Timestamp &timestamp,
                           decide_t decide,
-                          continuation_t continuation,
-                          error_continuation_t error_continuation)
-{
+                          consensus_continuation_t continuation,
+                          error_continuation_t error_continuation) {
     uint64_t reqId = ++lastReqId;
     auto timer = std::unique_ptr<Timeout>(new Timeout(
-        transport, 500, [this, reqId]() { ResendConsensus(reqId); }));
+        transport, 500, [this, reqId]() { ResendConsensusRequest(reqId); }));
     auto transition_to_slow_path_timer =
         std::unique_ptr<Timeout>(new Timeout(transport, 500, [this, reqId]() {
             TransitionToConsensusSlowPath(reqId);
         }));
 
     PendingConsensusRequest *req =
-      new PendingConsensusRequest(request,
-                                  reqId,
+      new PendingConsensusRequest(reqId,
                                   txn_nr,
                                   core_id,
                                   continuation,
@@ -174,26 +134,22 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
     pendingReqs[reqId] = req;
     // TODO: how do we deal with timeouts? (do we need to patch eRPC?)
     req->transition_to_slow_path_timer->Start();
-    SendConsensus(req);
-}
+    //SendConsensus(req);
+    auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
+    reqBuf->req_nr = reqId;
+    reqBuf->txn_nr = txn_nr;
+    reqBuf->id = timestamp.getID();
+    reqBuf->timestamp = timestamp.getTimestamp();
+    reqBuf->client_id = clientid;
+    reqBuf->nr_reads = txn.getReadSet().size();
+    reqBuf->nr_writes = txn.getWriteSet().size();
 
-void
-IRClient::SendConsensus(const PendingConsensusRequest *req)
-{
-    proto::ProposeConsensusMessage reqMsg;
-    reqMsg.mutable_req()->set_op(req->request);
-    reqMsg.mutable_req()->set_clientid(clientid);
-    reqMsg.mutable_req()->set_clientreqid(req->clientReqId);
-    reqMsg.mutable_req()->set_clienttxn_nr(req->clienttxn_nr);
+    txn.serialize(reinterpret_cast<char *>(transport->GetRequestBuf()) + sizeof(consensus_request_header_t));
 
-    //txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
-    req->timer->Start();
-    if (transport->SendMessageToAll(this, reqMsg)) {
-    } else {
-        Warning("Could not send consensus request to replicas");
-        pendingReqs.erase(req->clientReqId);
-        delete req;
-    }
+    // TODO: send to all replicas
+    transport->SendMessageToReplica(consensusReqType, 0, sizeof(consensus_request_header_t) +
+                                                    reqBuf->nr_reads * sizeof(read_t) +
+                                                    reqBuf->nr_writes * sizeof(write_t));
 }
 
 void
@@ -201,10 +157,9 @@ IRClient::InvokeUnlogged(uint64_t txn_nr,
                          uint32_t core_id,
                          int replicaIdx,
                          const string &request,
-                         continuation_t continuation,
+                         unlogged_continuation_t continuation,
                          error_continuation_t error_continuation,
-                         uint32_t timeout)
-{
+                         uint32_t timeout) {
     uint64_t reqId = ++lastReqId;
     auto timer = std::unique_ptr<Timeout>(new Timeout(
         transport, timeout,
@@ -219,46 +174,28 @@ IRClient::InvokeUnlogged(uint64_t txn_nr,
                                  error_continuation,
                                  std::move(timer));
 
-    proto::UnloggedRequestMessage reqMsg;
-    reqMsg.mutable_req()->set_op(request);
-    reqMsg.mutable_req()->set_clientid(clientid);
-    reqMsg.mutable_req()->set_clientreqid(reqId);
-    reqMsg.mutable_req()->set_clienttxn_nr(txn_nr);
-
     // TODO: find a way to get sending errors (the eRPC's enqueue_request
     // function does not return errors)
     // TODO: deal with timeouts?
     pendingReqs[reqId] = req;
-    transport->SendMessageToReplica(this, replicaIdx, reqMsg);
-
-    //txnid_t txn_id = std::make_pair(clientid, txn_nr);
-    // if (transport->SendMessageToReplica(this, replicaIdx, reqMsg)) {
-    //     req->timer->Start();
-    //     pendingReqs[reqId] = req;
-    // } else {
-    //     Warning("Could not send unlogged request to replica");
-    //     delete req;
-    // }
+    auto *reqBuf = reinterpret_cast<unlogged_request_t *>(transport->GetRequestBuf());
+    reqBuf->req_nr = reqId;
+    memcpy(reqBuf->key, request.c_str(), request.size());
+    transport->SendMessageToReplica(unloggedReqType, replicaIdx, sizeof(unlogged_request_t));
 }
 
-void
-IRClient::ResendInconsistent(const uint64_t reqId)
-{
-
-    Warning("Client timeout; resending inconsistent request: %lu", reqId);
-    SendInconsistent((PendingInconsistentRequest *)pendingReqs[reqId]);
-}
-
-void
-IRClient::ResendConsensus(const uint64_t reqId)
-{
+void IRClient::ResendConsensusRequest(const uint64_t reqId) {
     Warning("Client timeout; resending consensus request: %lu", reqId);
-    SendConsensus((PendingConsensusRequest *)pendingReqs[reqId]);
+    auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
+    // reqBuf must already have all field filled in
+        // TODO: send to all replicas
+    transport->SendMessageToReplica(consensusReqType, 0, sizeof(consensus_request_header_t) +
+                                                    reqBuf->nr_reads * sizeof(read_t) +
+                                                    reqBuf->nr_writes * sizeof(write_t));
 }
 
 void
-IRClient::TransitionToConsensusSlowPath(const uint64_t reqId)
-{
+IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
     Warning("Client timeout; taking consensus slow path: reqId=%lu", reqId);
     PendingConsensusRequest *req =
         dynamic_cast<PendingConsensusRequest *>(pendingReqs[reqId]);
@@ -272,7 +209,7 @@ IRClient::TransitionToConsensusSlowPath(const uint64_t reqId)
 
     // It's possible that we already have a quorum of responses (but not a
     // super quorum).
-    const std::map<int, proto::ReplyConsensusMessage> *quorum =
+    const std::map<int, consensus_response_t> *quorum =
         req->consensusReplyQuorum.CheckForQuorum();
     if (quorum != nullptr) {
         HandleSlowPathConsensus(reqId, *quorum, false, req);
@@ -281,7 +218,7 @@ IRClient::TransitionToConsensusSlowPath(const uint64_t reqId)
 
 void IRClient::HandleSlowPathConsensus(
     const uint64_t req_nr,
-    const std::map<int, proto::ReplyConsensusMessage> &msgs,
+    const std::map<int, consensus_response_t> &msgs,
     const bool finalized_result_found,
     PendingConsensusRequest *req)
 {
@@ -292,52 +229,47 @@ void IRClient::HandleSlowPathConsensus(
     // finalized result.
     if (!finalized_result_found) {
         uint64_t view = 0;
-        std::map<string, std::size_t> results;
+        std::map<int, std::size_t> results;
         for (const auto &p : msgs) {
-            const proto::ReplyConsensusMessage &msg = p.second;
-            results[msg.result()] += 1;
+            const consensus_response_t *r = &p.second;
+            results[r->status] += 1;
 
             // All messages should have the same view.
             if (view == 0) {
-                view = msg.view();
+                view = r->view;
             }
-            ASSERT(msg.view() == view);
+            ASSERT(r->view == view);
         }
 
         // Upcall into the application, and put the result in the request
         // to store for later retries.
         ASSERT(req->decide != NULL);
-        req->decideResult = req->decide(results);
+        req->decidedStatus = req->decide(results);
         req->reply_consensus_view = view;
     }
 
     // Set up a new timer for the finalize phase.
     req->timer = std::unique_ptr<Timeout>(
         new Timeout(transport, 500, [this, req_nr]() {  //
-            ResendConfirmation(req_nr, true);
+            ResendFinalizeConsensusRequest(req_nr, true);
         }));
 
     // Send finalize message.
-    proto::FinalizeConsensusMessage response;
-    response.mutable_opid()->set_clientid(clientid);
-    response.mutable_opid()->set_clientreq_nr(req_nr);
-    response.set_clienttxn_nr(req->clienttxn_nr);
-    response.set_result(req->decideResult);
-    //txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
-    if (transport->SendMessageToAll(this, response)) {
-        Debug("FinalizeConsensusMessages sent for request %lu.", req_nr);
-        req->sent_confirms = true;
-        req->timer->Start();
-    } else {
-        Warning("Could not send finalize message to replicas");
-        pendingReqs.erase(req_nr);
-        delete req;
-    }
+    auto *reqBuf = reinterpret_cast<finalize_consensus_request_t *>(transport->GetRequestBuf());
+    reqBuf->req_nr = req_nr;
+    reqBuf->client_id = clientid;
+    reqBuf->status = req->decidedStatus;
+    reqBuf->txn_nr = req->clienttxn_nr;
+
+    // TODO: send to all
+    transport->SendMessageToReplica(finalizeConsensusReqType, 0, sizeof(finalize_consensus_request_t));
+    req->sent_confirms = true;
+    req->timer->Start();
 }
 
 void IRClient::HandleFastPathConsensus(
     const uint64_t req_nr,
-    const std::map<int, proto::ReplyConsensusMessage> &msgs,
+    const std::map<int, consensus_response_t> &msgs,
     PendingConsensusRequest *req,
     bool &unblock)
 {
@@ -346,9 +278,9 @@ void IRClient::HandleFastPathConsensus(
 
     // We've received a super quorum of responses. Now, we have to check to see
     // if we have a super quorum of _matching_ responses.
-    map<string, std::size_t> results;
+    std::map<int, std::size_t> results;
     for (const auto &m : msgs) {
-        const std::string &result = m.second.result();
+        const int result = m.second.status;
         results[result]++;
     }
 
@@ -360,7 +292,7 @@ void IRClient::HandleFastPathConsensus(
         // A super quorum of matching requests was found!
         Debug("A super quorum of matching requests was found for request %lu.",
               req_nr);
-        req->decideResult = result.first;
+        req->decidedStatus = result.first;
 
         // Stop the transition to slow path timer
         req->transition_to_slow_path_timer->Stop();
@@ -368,31 +300,9 @@ void IRClient::HandleFastPathConsensus(
         // aaasz: we don't need to send finalize consensus on fast path anymore;
         // the client will immediately send the inconsistent request to commit/abort
 
-        // Set up a new timeout for the finalize phase.
-        // req->timer = std::unique_ptr<Timeout>(new Timeout(
-        //      transport, 500,
-        //      [this, req_nr]() { ResendConfirmation(req_nr, true); }));
-
-        // Asynchronously send the finalize message.
-        // proto::FinalizeConsensusMessage response;
-        // response.mutable_opid()->set_clientid(clientid);
-        // response.mutable_opid()->set_clientreq_nr(req_nr);
-        // response.set_clienttxn_nr(req->clienttxn_nr);
-        // response.set_result(result.first);
-        // //txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
-        // if (((UDPSTransport *)transport)->SendMessageToAll(req->core_id, this, response)) {
-        //     Debug("FinalizeConsensusMessages sent for request %lu.", req_nr);
-        //     req->sent_confirms = true;
-        //     req->timer->Start();
-        // } else {
-        //     Warning("Could not send finalize message to replicas");
-        //     pendingReqs.erase(req_nr);
-        //     delete req;
-        // }
-
         // Return to the client.
         if (!req->continuationInvoked) {
-            req->continuation(req->request, req->decideResult);
+            req->consensus_continuation(req->decidedStatus);
             req->continuationInvoked = true;
             unblock = true;
         }
@@ -411,9 +321,7 @@ void IRClient::HandleFastPathConsensus(
     HandleSlowPathConsensus(req_nr, msgs, false, req);
 }
 
-void
-IRClient::ResendConfirmation(const uint64_t req_nr, bool isConsensus)
-{
+void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isConsensus) {
     if (pendingReqs.find(req_nr) == pendingReqs.end()) {
         Warning("Received resend request when no request was pending");
         return;
@@ -425,145 +333,76 @@ IRClient::ResendConfirmation(const uint64_t req_nr, bool isConsensus)
         PendingConsensusRequest *req = static_cast<PendingConsensusRequest *>(pendingReqs[req_nr]);
         ASSERT(req != NULL);
 
-        proto::FinalizeConsensusMessage response;
-        response.mutable_opid()->set_clientid(clientid);
-        response.mutable_opid()->set_clientreq_nr(req->clientReqId);
-        response.set_clienttxn_nr(req->clienttxn_nr);
-        response.set_result(req->decideResult);
-        //txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
-        if(transport->SendMessageToAll(this, response)) {
-            req->timer->Reset();
-        } else {
-            Warning("Could not send finalize message to replicas");
-            // give up and clean up
-            pendingReqs.erase(req_nr);
-            delete req;
-        }
+        // TODO: the reqBuf should already have the necessary information
+        // (of the last request)
+        // TODO: send to all
+        transport->SendMessageToReplica(finalizeConsensusReqType, 0, sizeof(finalize_consensus_request_t));
+        req->timer->Reset();
     } else {
     	// aaasz: We don't need this anymore -- we only finalize consensus operations
 	    Panic("Not implemented!");
-//    	PendingInconsistentRequest *req = static_cast<PendingInconsistentRequest *>(pendingReqs[req_nr]);
-//	    ASSERT(req != NULL);
-//	    Warning("Client timeout; Resend inconsistent finalize: %lu", req_nr);
-//
-//	    proto::FinalizeInconsistentMessage response;
-//        response.mutable_opid()->set_clientid(clientid);
-//        response.mutable_opid()->set_clientreq_nr(req->clientReqId);
-//        response.set_clienttxn_nr(req->clienttxn_nr);
-//        txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
-//        if (((UDPSTransport *)transport)->SendMessageToAll(txn_id, this, response)) {
-//            req->timer->Reset();
-//        } else {
-//            Warning("Could not send finalize message to replicas");
-//	        pendingReqs.erase(req_nr);
-//            delete req;
-//        }
     }
 }
 
-void
-IRClient::ReceiveMessage(const string &type,
-                         const string &data,
-                         bool &unblock)
-{
-    proto::ReplyInconsistentMessage replyInconsistent;
-    proto::ReplyConsensusMessage replyConsensus;
-    proto::ConfirmMessage confirm;
-    proto::UnloggedReplyMessage unloggedReply;
-
-    if (type == replyInconsistent.GetTypeName()) {
-        replyInconsistent.ParseFromString(data);
-        HandleInconsistentReply(replyInconsistent, unblock);
-    } else if (type == replyConsensus.GetTypeName()) {
-        replyConsensus.ParseFromString(data);
-        HandleConsensusReply(replyConsensus, unblock);
-    } else if (type == confirm.GetTypeName()) {
-        confirm.ParseFromString(data);
-        HandleConfirm(confirm, unblock);
-    } else if (type == unloggedReply.GetTypeName()) {
-        unloggedReply.ParseFromString(data);
-        HandleUnloggedReply(unloggedReply, unblock);
-    } else {
-        Client::ReceiveMessage(type, data, unblock);
+// TOOD: for now, just the GETs go through this
+void IRClient::ReceiveResponse(uint8_t reqType, char *respBuf, bool &unblock) {
+    switch(reqType){
+        case unloggedReqType:
+            HandleUnloggedReply(respBuf, unblock);
+            break;
+        case inconsistentReqType:
+            HandleInconsistentReply(respBuf, unblock);
+            break;
+        case consensusReqType:
+            HandleConsensusReply(respBuf, unblock);
+            break;
+        case finalizeConsensusReqType:
+            HandleFinalizeConsensusReply(respBuf, unblock);
+            break;
+        default:
+            Warning("Unrecognized request type: %d\n", reqType);
     }
 }
 
-void
-IRClient::HandleInconsistentReply(const proto::ReplyInconsistentMessage &msg,
-                                  bool &unblock)
-{
-    uint64_t req_nr = msg.opid().clientreq_nr();
-    auto it = pendingReqs.find(req_nr);
+void IRClient::HandleUnloggedReply(char *respBuf, bool &unblock) {
+    auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
+    auto it = pendingReqs.find(resp->req_nr);
     if (it == pendingReqs.end()) {
-        Debug("Received reply when no request was pending");
+        Warning("Received unlogged reply when no request was pending; req_nr = %lu", resp->req_nr);
         return;
     }
-
-    PendingInconsistentRequest *req =
-        dynamic_cast<PendingInconsistentRequest *>(it->second);
-    // Make sure the dynamic cast worked
-    ASSERT(req != NULL);
-
-    Debug("Client received inconsistent reply: %lu %i", req_nr,
-          req->inconsistentReplyQuorum.NumRequired());
-
-    // Record replies
-    viewstamp_t vs = { msg.view(), req_nr };
-    if (req->inconsistentReplyQuorum.AddAndCheckForQuorum(vs, msg.replicaidx(), msg)) {
-        // TODO: Some of the ReplyInconsistentMessages might already be
-        // finalized. If this is the case, then we don't have to send finalize
-        // messages to them. It's not incorrect to send them anyway (which this
-        // code does) but it's less efficient.
-
-        // If all quorum received, then send finalize and return to client
-        // Return to client
-
-        // aaasz: We don't need to finalize the inconsistent operation for our purposes
-        // TODO: This will unblock blockingBegin in shardclient.cc; shouldn't we unblock that
-        // earlier, after consensus operation finished?
-        req->continuation(req->request, "");
-        unblock = true;
-        pendingReqs.erase(it);
-        delete req;
-//        if (!req->continuationInvoked) {
-//            req->timer = std::unique_ptr<Timeout>(new Timeout(
-//                transport, 500,
-//                [this, req_nr]() { ResendConfirmation(req_nr, false); }));
-//
-//            // asynchronously send the finalize message
-//            proto::FinalizeInconsistentMessage response;
-//            *(response.mutable_opid()) = msg.opid();
-//            response.set_clienttxn_nr(req->clienttxn_nr);
-//
-//            txnid_t txn_id = std::make_pair(clientid, req->clienttxn_nr);
-//            if (((UDPSTransport *)transport)->SendMessageToAll(txn_id, this, response)) {
-//                req->timer->Start();
-//            } else {
-//                Warning("Could not send finalize message to replicas");
-//            }
-//
-//            req->continuation(req->request, "");
-//            req->continuationInvoked = true;
-//        }
-    }
+    PendingUnloggedRequest *req = (PendingUnloggedRequest *)it->second;
+    // delete timer event
+    req->timer->Stop();
+    // remove from pending list
+    pendingReqs.erase(it);
+    // invoke application callback
+    req->get_continuation(respBuf);
+    delete req;
+    unblock = true;
 }
 
-void
-IRClient::HandleConsensusReply(const proto::ReplyConsensusMessage &msg,
-                               bool &unblock)
-{
-    uint64_t req_nr = msg.opid().clientreq_nr();
+void IRClient::HandleInconsistentReply(char *respBuf, bool &unblock) {
+    // just check if we need to unblock
+    auto *resp = reinterpret_cast<inconsistent_response_t *>(respBuf);
+    if (lastReqId == resp->req_nr)
+        unblock = true;
+}
+
+void IRClient::HandleConsensusReply(char *respBuf, bool &unblock) {
+    auto *resp = reinterpret_cast<consensus_response_t *>(respBuf);
+
     Debug(
         "Client received ReplyConsensusMessage from replica %i in view %lu for "
         "request %lu.",
-        msg.replicaidx(), msg.view(), req_nr);
+        resp->replicaid, resp->view, resp->req_nr);
 
-    auto it = pendingReqs.find(req_nr);
+    auto it = pendingReqs.find(resp->req_nr);
     if (it == pendingReqs.end()) {
         Debug(
             "Client was not expecting a ReplyConsensusMessage for request %lu, "
             "so it is ignoring the request.",
-            req_nr);
+            resp->req_nr);
         return;
     }
 
@@ -576,16 +415,17 @@ IRClient::HandleConsensusReply(const proto::ReplyConsensusMessage &msg,
             "Client has already received a quorum or super quorum of "
             "HandleConsensusReply for request %lu and has already sent out "
             "ConfirmMessages.",
-            req_nr);
+            resp->req_nr);
         return;
     }
 
-    req->consensusReplyQuorum.Add(msg.view(), msg.replicaidx(), msg);
-    const std::map<int, proto::ReplyConsensusMessage> &msgs =
-        req->consensusReplyQuorum.GetMessages(msg.view());
+    // save the response
+    req->consensusReplyQuorum.Add(resp->view, resp->replicaid, *resp);
+    const std::map<int, consensus_response_t> &msgs =
+        req->consensusReplyQuorum.GetMessages(resp->view);
 
-    if (msg.finalized()) {
-        Debug("The HandleConsensusReply for request %lu was finalized.", req_nr);
+    if (resp->finalized) {
+        Debug("The HandleConsensusReply for request %lu was finalized.", resp->req_nr);
         // If we receive a finalized message, then we immediately transition
         // into the slow path.
         req->on_slow_path = true;
@@ -593,39 +433,37 @@ IRClient::HandleConsensusReply(const proto::ReplyConsensusMessage &msg,
             req->transition_to_slow_path_timer.reset();
         }
 
-        req->decideResult = msg.result();
-        req->reply_consensus_view = msg.view();
-        HandleSlowPathConsensus(req_nr, msgs, true, req);
+        req->decidedStatus = resp->status;
+        req->reply_consensus_view = resp->view;
+        // TODO: what if finalize in a different view?
+        HandleSlowPathConsensus(resp->req_nr, msgs, true, req);
     } else if (req->on_slow_path && msgs.size() >= req->quorumSize) {
-        HandleSlowPathConsensus(req_nr, msgs, false, req);
+        HandleSlowPathConsensus(resp->req_nr, msgs, false, req);
     } else if (!req->on_slow_path && msgs.size() >= req->superQuorumSize) {
-        HandleFastPathConsensus(req_nr, msgs, req, unblock);
+        HandleFastPathConsensus(resp->req_nr, msgs, req, unblock);
     }
 }
 
-void
-IRClient::HandleConfirm(const proto::ConfirmMessage &msg,
-                        bool &unblock)
-{
-    uint64_t req_nr = msg.opid().clientreq_nr();
-    auto it = pendingReqs.find(req_nr);
+void IRClient::HandleFinalizeConsensusReply(char *respBuf, bool &unblock) {
+    auto *resp = reinterpret_cast<finalize_consensus_response_t *>(respBuf);
+    auto it = pendingReqs.find(resp->req_nr);
     if (it == pendingReqs.end()) {
         Debug(
             "We received a ConfirmMessage for operation %lu, but we weren't "
             "waiting for any ConfirmMessages. We are ignoring the message.",
-            req_nr);
+            resp->req_nr);
         return;
     }
 
     Debug(
         "Client received ConfirmMessage from replica %i in view %lu for "
         "request %lu.",
-        msg.replicaidx(), msg.view(), req_nr);
+        resp->replicaid, resp->view, resp->req_nr);
 
     PendingRequest *req = it->second;
 
-    viewstamp_t vs = { msg.view(), req_nr };
-    if (req->confirmQuorum.AddAndCheckForQuorum(vs, msg.replicaidx(), msg)) {
+    viewstamp_t vs = { resp->view, resp->req_nr };
+    if (req->confirmQuorum.AddAndCheckForQuorum(vs, resp->replicaid, *resp)) {
         req->timer->Stop();
         pendingReqs.erase(it);
         if (!req->continuationInvoked) {
@@ -639,13 +477,13 @@ IRClient::HandleConfirm(const proto::ConfirmMessage &msg,
                 dynamic_cast<PendingConsensusRequest *>(req);
             ASSERT(r2 != nullptr);
             if (vs.view == r2->reply_consensus_view) {
-                r2->continuation(r2->request, r2->decideResult);
+                r2->consensus_continuation(r2->decidedStatus);
             } else {
                 Debug(
                     "We received a majority of ConfirmMessages for request %lu "
                     "with view %lu, but the view from ReplyConsensusMessages "
                     "was %lu.",
-                    req_nr, vs.view, r2->reply_consensus_view);
+                    resp->req_nr, vs.view, r2->reply_consensus_view);
                 if (r2->error_continuation) {
                     r2->error_continuation(
                         r2->request, ErrorCode::MISMATCHED_CONSENSUS_VIEWS);
@@ -654,29 +492,6 @@ IRClient::HandleConfirm(const proto::ConfirmMessage &msg,
         }
         delete req;
     }
-}
-
-void
-IRClient::HandleUnloggedReply(const proto::UnloggedReplyMessage &msg,
-                              bool &unblock)
-{
-    uint64_t req_nr = msg.clientreq_nr();
-    auto it = pendingReqs.find(req_nr);
-    if (it == pendingReqs.end()) {
-        Warning("Received unlogged reply when no request was pending; req_nr = %lu", req_nr);
-        return;
-    }
-
-    PendingRequest *req = it->second;
-    // delete timer event
-    req->timer->Stop();
-    // remove from pending list
-    pendingReqs.erase(it);
-    // invoke application callback
-    req->continuation(req->request, msg.reply());
-    unblock = true;
-
-    delete req;
 }
 
 void

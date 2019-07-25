@@ -40,20 +40,8 @@ enum TransactionStatus {
     ABORTED
 };
 
-// typedef std::unordered_map
-//     <std::string, Timestamp,
-//      std::hash<std::string>>
-// ReadSetMap;
-
-// typedef std::unordered_map
-//     <std::string, std::string,
-//      std::hash<std::string>>
-// //     std::equal_to<std::string>,
-// //     tbb::scalable_allocator< std::pair<std::string, std::string>>>
-// WriteSetMap;
-
-typedef std::map<std::string, Timestamp> ReadSetMap;
-typedef std::map<std::string, std::string> WriteSetMap;
+typedef std::unordered_map<std::string, Timestamp> ReadSetMap;
+typedef std::unordered_map<std::string, std::string> WriteSetMap;
 
 class Transaction {
 private:
@@ -68,7 +56,7 @@ private:
 
 public:
     Transaction();
-    Transaction(const TransactionMessage &msg);
+    Transaction(uint8_t nr_reads, uint8_t nr_writes, char* buf);
     ~Transaction();
 
     //const std::unordered_map<std::string, Timestamp>& getReadSet() const;
@@ -78,7 +66,7 @@ public:
 
     void addReadSet(const std::string &key, const Timestamp &readTime);
     void addWriteSet(const std::string &key, const std::string &value);
-    void serialize(TransactionMessage *msg) const;
+    void serialize(char *reqBuf) const;
     void clear();
 };
 

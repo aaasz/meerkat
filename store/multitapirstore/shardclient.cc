@@ -96,20 +96,13 @@ void
 ShardClientIR::Begin(uint64_t txn_nr)
 {
     Debug("[shard %i] BEGIN: %lu", shard, txn_nr);
-
-    // Wait for any previous pending requests.
-    // if (blockingBegin != NULL) {
-    //     blockingBegin->GetReply();
-    //     delete blockingBegin;
-    //     blockingBegin = NULL;
-    // }
 }
 
 void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
                                      uint32_t core_id,
                                      Promise *promise,
                                      const std::string &request_str,
-                                     replication::continuation_t callback,
+                                     replication::unlogged_continuation_t callback,
                                      replication::error_continuation_t error_callback) {
 
     Debug("Sending unlogged request to replica %d.", replica);
@@ -117,50 +110,27 @@ void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
     waiting = promise;
     client->InvokeUnlogged(txn_nr, core_id, replica, request_str, callback,
                            error_callback, timeout);
-
-	// const int timeout = (promise != nullptr) ? promise->GetTimeout() : 1000;
-    // transport->Timer(0, [=]() {
-    //     waiting = promise;
-    //     client->InvokeUnlogged(txn_nr, core_id, replica, request_str, callback,
-    //                            error_callback, timeout);
-    // });
 }
 
 void ShardClientIR::SendConsensus(uint64_t txn_nr, uint32_t core_id, Promise *promise,
-                                  const std::string &request_str,
+                                  const Transaction &txn, const Timestamp &timestamp,
                                   replication::ir::decide_t decide,
-                                  replication::continuation_t callback,
+                                  replication::consensus_continuation_t callback,
                                   replication::error_continuation_t error_callback) {
 
     Debug("Sending consensus request to replica %d.", replica);
     waiting = promise;
-    client->InvokeConsensus(txn_nr, core_id, request_str, decide,
+    client->InvokeConsensus(txn_nr, core_id, txn, timestamp, decide,
                             callback, error_callback);
-
-    // transport->Timer(0, [=]() {
-    //     waiting = promise;
-    //     client->InvokeConsensus(txn_nr, core_id, request_str, decide,
-    //                             callback, error_callback);
-    // });
 }
 
 void ShardClientIR::SendInconsistent(uint64_t txn_nr, uint32_t core_id,
-                                     Promise *promise,
-                                     const std::string &request_str,
-                                     replication::continuation_t callback,
+                                     bool commit,
+                                     replication::inconsistent_continuation_t callback,
                                      replication::error_continuation_t error_callback) {
 
-    client->InvokeInconsistent(txn_nr, core_id, request_str,
+    client->InvokeInconsistent(txn_nr, core_id, commit,
                                callback, error_callback);
-
-    // Debug("Sending inconsistent request to replica %d.", replica);
-    // transport->Timer(0, [=]() {
-    //     // aaasz: client does not need to wait on this promise
-    //     // TODO: for now we have to, because the transport currently
-    //     // only supports one outstanding request at a time
-    //     waiting = promise;
-    //     client->InvokeInconsistent(txn_nr, core_id, request_str, callback, error_callback);
-    // });
 }
 
 void
@@ -177,17 +147,9 @@ ShardClientIR::Get(uint64_t txn_nr, uint32_t core_id,
     // Send the GET operation to appropriate shard.
     Debug("[shard %i] Sending GET [%lu : %s]", shard, txn_nr, key.c_str());
 
-    // create request
-    string request_str;
-    Request request;
-    request.set_op(Request::GET);
-    request.mutable_get()->set_key(key);
-    request.SerializeToString(&request_str);
-
-    SendUnreplicated(txn_nr, core_id, promise, request_str,
+    SendUnreplicated(txn_nr, core_id, promise, key,
       bind(&ShardClientIR::GetCallback, this,
-           placeholders::_1,
-           placeholders::_2),
+           placeholders::_1),
       bind(&ShardClientIR::GetTimeout, this));
 }
 
@@ -224,66 +186,51 @@ ShardClientIR::Prepare(uint64_t txn_nr,
 {
     Debug("[shard %i] Sending PREPARE [%lu]", shard, txn_nr);
 
-    // create prepare request
-    string request_str;
-    Request request;
-    request.set_op(Request::PREPARE);
-    txn.serialize(request.mutable_prepare()->mutable_txn());
-    timestamp.serialize(request.mutable_prepare()->mutable_timestamp());
-    request.SerializeToString(&request_str);
-
-    if (replicated) {
-        SendConsensus(txn_nr, core_id, promise, request_str,
+    SendConsensus(txn_nr, core_id, promise, txn, timestamp,
           bind(&ShardClientIR::MultiTapirDecide, this,
                placeholders::_1),
           bind(&ShardClientIR::PrepareCallback, this,
-               placeholders::_1,
-               placeholders::_2), nullptr);
-    } else {
-        SendUnreplicated(
-          txn_nr, core_id, promise, request_str,
-          bind(&ShardClientIR::PrepareCallback, this,
-               placeholders::_1, placeholders::_2),
-          bind(&ShardClientIR::GiveUpTimeout, this));
-    }
+               placeholders::_1), nullptr);
 }
 
-std::string
-ShardClientIR::MultiTapirDecide(const std::map<std::string, std::size_t> &results)
-{
+int ShardClientIR::MultiTapirDecide(const std::map<int, std::size_t> &results) {
+    // TODO: re-introduce the retry?
+
     // If a majority say prepare_ok,
     int ok_count = 0;
-    Timestamp ts = 0;
-    string final_reply_str;
-    Reply final_reply;
+    // Timestamp ts = 0;
+    // string final_reply_str;
+    // Reply final_reply;
 
-    for (const auto& string_and_count : results) {
-        const std::string &s = string_and_count.first;
-        const std::size_t count = string_and_count.second;
+    for (const auto& r : results) {
+        const int status = r.first;
+        const std::size_t count = r.second;
 
-        Reply reply;
-        reply.ParseFromString(s);
+        // Reply reply;
+        //reply.ParseFromString(s);
 
-        if (reply.status() == REPLY_OK) {
+        if (status == REPLY_OK) {
             ok_count += count;
-        } else if (reply.status() == REPLY_FAIL) {
-            return s;
-        } else if (reply.status() == REPLY_RETRY) {
-            Timestamp t(reply.timestamp());
-            if (t > ts) {
-                ts = t;
-            }
+        } else if (status == REPLY_FAIL) {
+            return REPLY_FAIL;
+        //} else if (reply.status() == REPLY_RETRY) {
+        //    Timestamp t(reply.timestamp());
+        //    if (t > ts) {
+        //        ts = t;
+        //    }
         }
     }
 
-    if (ok_count >= config->QuorumSize()) {
-        final_reply.set_status(REPLY_OK);
-    } else {
-        final_reply.set_status(REPLY_RETRY);
-        ts.serialize(final_reply.mutable_timestamp());
-    }
-    final_reply.SerializeToString(&final_reply_str);
-    return final_reply_str;
+    ASSERT(ok_count >= config->QuorumSize());
+    // {
+    //    final_reply.set_status(REPLY_OK);
+    // } else {
+    //     final_reply.set_status(REPLY_RETRY);
+    //     ts.serialize(final_reply.mutable_timestamp());
+    // }
+    // final_reply.SerializeToString(&final_reply_str);
+    // return final_reply_str;
+    return REPLY_OK;
 }
 
 void
@@ -302,27 +249,9 @@ ShardClientIR::Commit(uint64_t txn_nr, uint32_t core_id,
 
     Debug("[shard %i] Sending COMMIT [%lu]", shard, txn_nr);
 
-    // create commit request
-    string request_str;
-    Request request;
-    request.set_op(Request::COMMIT);
-//    txn.serialize(request.mutable_commit()->mutable_txn());
-//    timestamp.serialize(request.mutable_commit()->mutable_timestamp());
-    request.SerializeToString(&request_str);
-
-    blockingBegin = new Promise(COMMIT_TIMEOUT);
-    if (replicated) {
-        SendInconsistent(txn_nr, core_id, blockingBegin, request_str,
+    SendInconsistent(txn_nr, core_id, true,
           bind(&ShardClientIR::CommitCallback, this,
-               placeholders::_1, placeholders::_2), nullptr);
-
-    } else {
-        SendUnreplicated(
-    	  txn_nr, core_id, blockingBegin, request_str,
-          bind(&ShardClientIR::CommitCallback, this,
-    	       placeholders::_1, placeholders::_2),
-          nullptr);
-    }
+               placeholders::_1), nullptr);
 }
 
 void
@@ -338,25 +267,9 @@ ShardClientIR::Abort(uint64_t txn_nr, uint32_t core_id,
 {
     Debug("[shard %i] Sending ABORT [%lu]", shard, txn_nr);
 
-    // create abort request
-    string request_str;
-    Request request;
-    request.set_op(Request::ABORT);
-    txn.serialize(request.mutable_abort()->mutable_txn());
-    request.SerializeToString(&request_str);
-
-    blockingBegin = new Promise(ABORT_TIMEOUT);
-    if (replicated) {
-        SendInconsistent(txn_nr, core_id, promise, request_str,
-          bind(&ShardClientIR::AbortCallback, this,
-               placeholders::_1, placeholders::_2), nullptr);
-    } else {
-        SendUnreplicated(
-          txn_nr, core_id, promise, request_str,
-          bind(&ShardClientIR::AbortCallback, this,
-               placeholders::_1, placeholders::_2),
-          nullptr);
-    }
+    SendInconsistent(txn_nr, core_id, false,
+          bind(&ShardClientIR::CommitCallback, this,
+               placeholders::_1), nullptr);
 }
 
 void
@@ -380,74 +293,40 @@ ShardClientIR::GiveUpTimeout() {
 }
 
 /* Callback from a shard replica on get operation completion. */
-void
-ShardClientIR::GetCallback(const string &request_str, const string &reply_str)
-{
-
-    /* Replies back from a shard. */
-    Reply reply;
-    reply.ParseFromString(reply_str);
+void ShardClientIR::GetCallback(char *respBuf) {
+    /* Replies back from a replica. */
+    auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
 
     // Debug("[shard %lu:%i] GET callback [%d]", client_id, shard, reply.status());
     if (waiting != NULL) {
         Promise *w = waiting;
         waiting = NULL;
-        if (reply.has_timestamp()) {
-            //gettimeofday(&t0, NULL);
-            w->Reply(reply.status(), Timestamp(reply.timestamp()), reply.value());
-            //gettimeofday(&t1, NULL);
-        } else {
-            w->Reply(reply.status(), reply.value());
-        }
+        w->Reply(resp->status, Timestamp(resp->timestamp, resp->id), std::string(resp->value, 64));
     } else {
         Warning("Waiting is null!");
     }
 }
 
 /* Callback from a shard replica on prepare operation completion. */
-void
-ShardClientIR::PrepareCallback(const string &request_str, const string &reply_str)
-{
-    Reply reply;
-
-    reply.ParseFromString(reply_str);
-    Debug("[shard %lu:%i] PREPARE callback [%d]", client_id, shard, reply.status());
+void ShardClientIR::PrepareCallback(int decidedStatus) {
+    Debug("[shard %lu:%i] PREPARE callback [%d]", client_id, shard, decidedStatus);
 
     if (waiting != NULL) {
         Promise *w = waiting;
         waiting = NULL;
-        if (reply.has_timestamp()) {
-            w->Reply(reply.status(), Timestamp(reply.timestamp()));
-        } else {
-            w->Reply(reply.status(), Timestamp());
-        }
+        // TODO: for now no optimization with RETRY
+        //if (reply.has_timestamp()) {
+        //    w->Reply(reply.status(), Timestamp(reply.timestamp()));
+        //} else {
+            w->Reply(decidedStatus, Timestamp());
+        //}
     }
 }
 
 /* Callback from a shard replica on commit operation completion. */
-void
-ShardClientIR::CommitCallback(const string &request_str, const string &reply_str)
-{
+void ShardClientIR::CommitCallback(char *respBuf) {
     // COMMITs always succeed.
     Debug("[shard %lu:%i] COMMIT callback", client_id, shard);
-
-    // ASSERT(blockingBegin != NULL);
-    // blockingBegin->Reply(0);
-
-    if (waiting != NULL) {
-        waiting = NULL;
-    }
-}
-
-/* Callback from a shard replica on abort operation completion. */
-void
-ShardClientIR::AbortCallback(const string &request_str, const string &reply_str)
-{
-    // ABORTs always succeed.
-    Debug("[shard %lu:%i] ABORT callback", client_id, shard);
-
-    // ASSERT(blockingBegin != NULL);
-    // blockingBegin->Reply(0);
 
     if (waiting != NULL) {
         waiting = NULL;

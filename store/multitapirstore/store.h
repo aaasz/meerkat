@@ -79,6 +79,7 @@ public:
 
     // Overriding from TxnStore
     void Begin(txnid_t txn_id);
+    int Get(const std::string &key, std::pair<Timestamp, std::string> &value);
     int Get(txnid_t txn_id, const std::string &key, std::pair<Timestamp, std::string> &value);
     int Get(txnid_t txn_id, const std::string &key, const Timestamp &timestamp, std::pair<Timestamp, std::string> &value);
     int Prepare(txnid_t txn_id, const Transaction &txn, const Timestamp &timestamp, Timestamp &proposed);

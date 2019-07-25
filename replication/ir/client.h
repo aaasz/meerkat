@@ -37,6 +37,7 @@
 #include "lib/transport.h"
 #include "lib/configuration.h"
 #include "replication/ir/ir-proto.pb.h"
+#include "store/common/transaction.h"
 
 #include <functional>
 #include <map>
@@ -47,8 +48,8 @@
 namespace replication {
 namespace ir {
 
-using result_set_t = std::map<string, std::size_t>;
-using decide_t = std::function<string(const result_set_t &)>;
+using result_set_t = std::map<int, std::size_t>;
+using decide_t = std::function<int(const result_set_t &)>;
 
 class IRClient : public Client
 {
@@ -65,7 +66,7 @@ public:
     virtual void InvokeUnlogged(
         int replicaIdx,
         const string &request,
-        continuation_t continuation,
+        unlogged_continuation_t continuation,
         error_continuation_t error_continuation = nullptr,
         uint32_t timeout = DEFAULT_UNLOGGED_OP_TIMEOUT) override;
     virtual void InvokeUnlogged(
@@ -73,27 +74,25 @@ public:
         uint32_t core_id,
         int replicaIdx,
         const string &request,
-        continuation_t continuation,
+        unlogged_continuation_t continuation,
         error_continuation_t error_continuation = nullptr,
         uint32_t timeout = DEFAULT_UNLOGGED_OP_TIMEOUT);
-    virtual void ReceiveMessage(
-        const string &type,
-        const string &data,
-        bool &unblock) override;
     virtual void InvokeInconsistent(
         uint64_t txn_nr,
         uint32_t core_id,
-        const string &request,
-        continuation_t continuation,
+        bool commit,
+        inconsistent_continuation_t continuation,
         error_continuation_t error_continuation = nullptr);
     virtual void InvokeConsensus(
         uint64_t txn_nr,
         uint32_t core_id,
-        const string &request,
+        const Transaction &txn,
+        const Timestamp &timestamp,
         decide_t decide,
-        continuation_t continuation,
+        consensus_continuation_t continuation,
         error_continuation_t error_continuation = nullptr);
-
+    void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) override {};
+    void ReceiveResponse(uint8_t reqType, char *respBuf, bool &unblock) override;
 protected:
     struct PendingRequest {
         string request;
@@ -103,7 +102,7 @@ protected:
         continuation_t continuation;
         bool continuationInvoked = false;
         std::unique_ptr<Timeout> timer;
-        QuorumSet<viewstamp_t, proto::ConfirmMessage> confirmQuorum;
+        QuorumSet<viewstamp_t, finalize_consensus_response_t> confirmQuorum;
 
         inline PendingRequest(string request, uint64_t clientReqId,
                               uint64_t clienttxn_nr, uint32_t core_id,
@@ -121,40 +120,45 @@ protected:
 
     struct PendingUnloggedRequest : public PendingRequest {
         error_continuation_t error_continuation;
+        unlogged_continuation_t get_continuation;
 
         inline PendingUnloggedRequest(
             string request, uint64_t clientReqId, uint64_t clienttxn_nr,
             uint32_t core_id,
-            continuation_t continuation,
+            unlogged_continuation_t get_continuation,
             error_continuation_t error_continuation,
             std::unique_ptr<Timeout> timer)
-            : PendingRequest(request, clientReqId, clienttxn_nr, core_id, continuation,
+            : PendingRequest(request, clientReqId, clienttxn_nr, core_id, nullptr,
                              std::move(timer), 1),
-              error_continuation(error_continuation){};
+              error_continuation(error_continuation),
+              get_continuation(get_continuation){};
     };
 
     struct PendingInconsistentRequest : public PendingRequest {
-        QuorumSet<viewstamp_t, proto::ReplyInconsistentMessage>
-            inconsistentReplyQuorum;
+        inconsistent_continuation_t inconsistent_continuation;
+        QuorumSet<viewstamp_t, proto::ReplyInconsistentMessage> inconsistentReplyQuorum;
 
-        inline PendingInconsistentRequest(string request, uint64_t clientReqId,
+        inline PendingInconsistentRequest(uint64_t clientReqId,
                                           uint64_t clienttxn_nr, uint32_t core_id,
-                                          continuation_t continuation,
+                                          inconsistent_continuation_t inconsistent_continuation,
                                           std::unique_ptr<Timeout> timer,
                                           int quorumSize)
-            : PendingRequest(request, clientReqId, clienttxn_nr, core_id, continuation,
+            : PendingRequest("", clientReqId, clienttxn_nr, core_id, nullptr,
                              std::move(timer), quorumSize),
+              inconsistent_continuation(inconsistent_continuation),
               inconsistentReplyQuorum(quorumSize){};
     };
 
     struct PendingConsensusRequest : public PendingRequest {
-        QuorumSet<opnum_t, proto::ReplyConsensusMessage> consensusReplyQuorum;
+        QuorumSet<opnum_t, consensus_response_t> consensusReplyQuorum;
         decide_t decide;
-        string decideResult;
+        //string decideResult;
+        int decidedStatus;
         const std::size_t quorumSize;
         const std::size_t superQuorumSize;
         bool on_slow_path;
         error_continuation_t error_continuation;
+        consensus_continuation_t consensus_continuation;
 
         // The timer to give up on the fast path and transition to the slow
         // path. After this timer is run for the first time, it is nulled.
@@ -170,14 +174,14 @@ protected:
         bool sent_confirms = false;
 
         inline PendingConsensusRequest(
-            string request, uint64_t clientReqId, uint64_t clienttxn_nr,
+            uint64_t clientReqId, uint64_t clienttxn_nr,
             uint32_t core_id,
-            continuation_t continuation,
+            consensus_continuation_t consensus_continuation,
             std::unique_ptr<Timeout> timer,
             std::unique_ptr<Timeout> transition_to_slow_path_timer,
             int quorumSize, int superQuorum, decide_t decide,
             error_continuation_t error_continuation)
-            : PendingRequest(request, clientReqId, clienttxn_nr, core_id, continuation,
+            : PendingRequest("", clientReqId, clienttxn_nr, core_id, nullptr,
                              std::move(timer), quorumSize),
               consensusReplyQuorum(quorumSize),
               decide(decide),
@@ -185,17 +189,13 @@ protected:
               superQuorumSize(superQuorum),
               on_slow_path(false),
               error_continuation(error_continuation),
+              consensus_continuation(consensus_continuation),
               transition_to_slow_path_timer(
                   std::move(transition_to_slow_path_timer)){};
     };
 
     uint64_t lastReqId;
     std::unordered_map<uint64_t, PendingRequest *> pendingReqs;
-
-    void SendInconsistent(const PendingInconsistentRequest *req);
-    void ResendInconsistent(const uint64_t reqId);
-    void SendConsensus(const PendingConsensusRequest *req);
-    void ResendConsensus(const uint64_t reqId);
 
     // `TransitionToConsensusSlowPath` is called after a timeout to end the
     // possibility of taking the fast path and transition into taking the slow
@@ -216,7 +216,7 @@ protected:
     // a consensus request.
     void HandleSlowPathConsensus(
         const uint64_t reqid,
-        const std::map<int, proto::ReplyConsensusMessage> &msgs,
+        const std::map<int, consensus_response_t> &msgs,
         const bool finalized_result_found,
         PendingConsensusRequest *req);
 
@@ -230,20 +230,20 @@ protected:
     // user.
     void HandleFastPathConsensus(
         const uint64_t reqid,
-        const std::map<int, proto::ReplyConsensusMessage> &msgs,
+        const std::map<int, consensus_response_t> &msgs,
         PendingConsensusRequest *req,
         bool &unblock);
 
-    void ResendConfirmation(const uint64_t reqId, bool isConsensus);
-    void HandleInconsistentReply(const proto::ReplyInconsistentMessage &msg,
-                                 bool &unblock);
-    void HandleConsensusReply(const proto::ReplyConsensusMessage &msg,
-                              bool &unblock);
-    void HandleConfirm(const proto::ConfirmMessage &msg,
-                       bool &unblock);
-    void HandleUnloggedReply(const proto::UnloggedReplyMessage &msg,
-                             bool &unblock);
+    void ResendConsensusRequest(const uint64_t reqId);
+    void ResendFinalizeConsensusRequest(const uint64_t reqId, bool isConsensus);
+
     void UnloggedRequestTimeoutCallback(const uint64_t reqId);
+
+    // new handlers
+    void HandleInconsistentReply(char *respBuf, bool &unblock);
+    void HandleUnloggedReply(char *respBuf, bool &unblock);
+    void HandleConsensusReply(char *respBuf, bool &unblock);
+    void HandleFinalizeConsensusReply(char *respBuf, bool &unblock);
 };
 
 } // namespace replication::ir

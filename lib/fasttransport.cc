@@ -57,128 +57,58 @@ using std::pair;
 
 #define FASTTRANSPORT_MEASURE_TIMES false
 
-#if  FASTTRANSPORT_MEASURE_TIMES
-static constexpr double kAppLatFac = 100.0;        // Precision factor for latency
-#endif
-
 erpc::Nexus *nexus;
 static std::mutex fasttransport_lock;
 static volatile bool fasttransport_initialized = false;
 // Used to assign increasing thread_ids, used as rpc object IDs
 static uint8_t fasttransport_thread_counter;
 
-static size_t SerializeMessage(const ::google::protobuf::Message &m,
-      char *out) {
-    string data = m.SerializeAsString();
-    string type = m.GetTypeName();
-    size_t typeLen = type.length();
-    size_t dataLen = data.length();
-    ssize_t totalLen = (typeLen + sizeof(typeLen) +
-                       dataLen + sizeof(dataLen));
-
-    char *ptr = out;
-    *((size_t *) ptr) = typeLen;
-    ptr += sizeof(size_t);
-    ASSERT(ptr-buf < totalLen);
-    ASSERT(ptr+typeLen-buf < totalLen);
-    memcpy(ptr, type.c_str(), typeLen);
-    ptr += typeLen;
-    *((size_t *) ptr) = dataLen;
-    ptr += sizeof(size_t);
-    ASSERT(ptr-buf < totalLen);
-    ASSERT(ptr+dataLen-buf == totalLen);
-    memcpy(ptr, data.c_str(), dataLen);
-    ptr += dataLen;
-
-    return totalLen;
-}
-
-static void DecodePacket(const char *buf, size_t sz, string &type, string &msg) {
-    const char *ptr = buf;
-    size_t typeLen = *((size_t *)ptr);
-    ptr += sizeof(size_t);
-
-    ASSERT(ptr-buf < (int)sz);
-    ASSERT(ptr+typeLen-buf < (int)sz);
-
-    type = string(ptr, typeLen);
-    ptr += typeLen;
-
-    size_t msgLen = *((size_t *)ptr);
-    ptr += sizeof(size_t);
-
-    ASSERT(ptr-buf < (int)sz);
-    ASSERT(ptr+msgLen-buf <= (int)sz);
-
-    msg = string(ptr, msgLen);
-    ptr += msgLen;
- 
-}
-
-// Function called when we received a response to an
-// RPC we sent on this transport
-static void fasttransport_rpc_response(void *_context, void *) {
-
+// Function called when we received a response to a
+// request we sent on this transport (TODO: for now, just GETs)
+static void fasttransport_response(void *_context, void *reqType) {
 #if FASTTRANSPORT_MEASURE_TIMES
     struct timespec s, e;
     clock_gettime(CLOCK_REALTIME, &s);
 #endif
-
+    Debug("Received respose, reqType = %d", *reinterpret_cast<uint8_t *>(reqType));
     auto *c = static_cast<AppContext *>(_context);
-    const auto &resp_msgbuf = c->client.resp_msgbuf;
-
-    std::string msgType, msg;
-    size_t sz = resp_msgbuf.get_data_size();
-
-    DecodePacket((char*)resp_msgbuf.buf, sz, msgType, msg);
-
-    c->receiver->ReceiveMessage(msgType, msg, c->unblock);
-
+    c->receiver->ReceiveResponse(*reinterpret_cast<uint8_t *>(reqType),
+                                 reinterpret_cast<char *>(c->client.resp_msgbuf.buf),
+                                 c->unblock);
 #if FASTTRANSPORT_MEASURE_TIMES
     clock_gettime(CLOCK_REALTIME, &e);
     //printf("fasttransport_rpc_response cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
 #endif
 }
 
-// Function called when we received an RPC request 
-static void fasttransport_rpc_request(erpc::ReqHandle *req_handle, void *_context) {
+// Function called when we received a request (TODO: for now just GETs)
+static void fasttransport_request(erpc::ReqHandle *req_handle, void *_context) {
 #if FASTTRANSPORT_MEASURE_TIMES
     struct timespec s, e;
     clock_gettime(CLOCK_REALTIME, &s);
 #endif
-
-    auto *c = static_cast<AppContext *>(_context);
-    const auto *req_msgbuf = req_handle->get_req_msgbuf();
-
     // save the req_handle for when we are in the SendMessage function
+    auto *c = static_cast<AppContext *>(_context);
     c->server.req_handle = req_handle;
-
-    std::string msgType, msg;
-    size_t sz = req_msgbuf->get_data_size();
-    char *req = reinterpret_cast<char *>(req_msgbuf->buf);
-
-    DecodePacket(req, sz, msgType, msg);
-    Debug("Received message, msgType = %s", msgType.c_str());
-
-    c->receiver->ReceiveMessage(msgType, msg, c->unblock);
-
+    // upcall to the app
+    c->receiver->ReceiveRequest(req_handle->get_req_type(),
+                                reinterpret_cast<char *>(req_handle->get_req_msgbuf()->buf),
+                                reinterpret_cast<char *>(req_handle->pre_resp_msgbuf.buf));
 #if FASTTRANSPORT_MEASURE_TIMES
     clock_gettime(CLOCK_REALTIME, &e);
     // update latency vector
-    double lat_us = (e.tv_nsec-s.tv_nsec)/1000.0 * kAppLatFac;
-    if (sz == 152)
-        c->server.latency_get.push_back(static_cast<uint64_t>(lat_us));
-    else if (sz >= 316)
-        c->server.latency_prepare.push_back(static_cast<size_t>(lat_us));
-    else if (sz == 88)
-        c->server.latency_commit.push_back(static_cast<size_t>(lat_us));
+    long lat_ns = e.tv_nsec-s.tv_nsec;
+    if (e.tv_nsec < s.tv_nsec) { //clock underflow
+        lat_ns += 1000000000;
+    };
+    c->server.latency_get.push_back(lat_ns);
     //printf("fasttransport_rpc_request cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
 #endif
 }
 
 FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_port, bool blocking)
-    : nthreads(nthreads),
-      phy_port(phy_port),
+    : phy_port(phy_port),
+      nthreads(nthreads),
       blocking(blocking) {
 
     // The first thread to grab the lock initializes the transport
@@ -213,9 +143,16 @@ FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_po
         // Setup eRPC
         Debug("Creating nexus objects with local_uri = %s", local_uri.c_str());
         nexus = new erpc::Nexus(local_uri, 0, 0);
-        nexus->register_req_func(reqType, fasttransport_rpc_request,
+        // TODO: give a list of reqType numbers and register them to
+        // the same handler
+        nexus->register_req_func(unloggedReqType, fasttransport_request,
                             erpc::ReqFuncType::kForeground);
-
+        nexus->register_req_func(inconsistentReqType, fasttransport_request,
+                            erpc::ReqFuncType::kForeground);
+        nexus->register_req_func(consensusReqType, fasttransport_request,
+                            erpc::ReqFuncType::kForeground);
+        nexus->register_req_func(finalizeConsensusReqType, fasttransport_request,
+                            erpc::ReqFuncType::kForeground);
         fasttransport_thread_counter = 0;
         fasttransport_initialized = true;
     }
@@ -246,88 +183,35 @@ void FastTransport::Register(TransportReceiver *receiver,
     this->config = new transport::Configuration(config);
 }
 
-bool FastTransport::SendMessageInternal(TransportReceiver *src,
-      int replicaIdx, const Message &m) {
+inline char *FastTransport::GetRequestBuf() {
+    return reinterpret_cast<char *>(c->client.req_msgbuf.buf);
+}
 
-    erpc::MsgBuffer &req_msgbuf = c->client.req_msgbuf;
-    ASSERT(req_msgbuf.get_data_size() == c->rpc->get_max_data_per_pkt());
+// This function assumes the message has already been copied to the
+// req_msgbuf
+bool FastTransport::SendMessageToReplica(uint8_t reqType, int replicaIdx, size_t msgLen) {
 
-    // Serialize message
-    //std::unique_ptr<char[]> unique_buf;
-
-    size_t msgLen = SerializeMessage(m, reinterpret_cast<char *>(req_msgbuf.buf));
-
-    Debug("SendMessageToReplica msgLen = %d", msgLen);
-    c->rpc->resize_msg_buffer(&req_msgbuf, msgLen);
-
+    c->rpc->resize_msg_buffer(&c->client.req_msgbuf, msgLen);
+    // TODO: select the corresponding session for replicaIdx
     c->rpc->enqueue_request(c->client.session_num, reqType, &c->client.req_msgbuf,
-                          &c->client.resp_msgbuf, fasttransport_rpc_response,
-                          nullptr);
+                          &c->client.resp_msgbuf, fasttransport_response,
+                          reinterpret_cast<uint8_t *>(&reqType));
+    if (blocking) {
+        while (!c->unblock) {
+            c->rpc->run_event_loop_once();
+        }
+        c->unblock = false;
+    }
 
-    Debug("SendMessageInternal request enqueued", msgLen);
     return true;
 }
 
-bool FastTransport::SendMessageToReplica(TransportReceiver *src,
-      int replicaIdx, const Message &m) {
-#if FASTTRANSPORT_MEASURE_TIMES
-    struct timespec s, e;
-    clock_gettime(CLOCK_REALTIME, &s);
-#endif
-
-    bool ret = SendMessageInternal(src, replicaIdx, m);
-
-    if (ret && blocking) {
-        while (!c->unblock) {
-            c->rpc->run_event_loop_once();
-        }
-        c->unblock = false;
-    }
-
-#if FASTTRANSPORT_MEASURE_TIMES
-    clock_gettime(CLOCK_REALTIME, &e);
-    //printf("SendMessageToReplica cost; latency = %.02f us\n", (e.tv_nsec-s.tv_nsec)/1000.0);
-#endif
-
-    return ret;
-}
-
-bool FastTransport::SendMessageToAll(TransportReceiver *src,
-      const Message &m) {
-#if FASTTRANSPORT_MEASURE_TIMES
-    struct timespec s, e;
-    clock_gettime(CLOCK_REALTIME, &s);
-#endif
-
-    // TODO: send to all, not just replica 0
-    bool ret = SendMessageInternal(src, 0, m);
-
-    if (ret && blocking) {
-        while (!c->unblock) {
-            c->rpc->run_event_loop_once();
-        }
-        c->unblock = false;
-    }
-
-#if FASTTRANSPORT_MEASURE_TIMES
-    clock_gettime(CLOCK_REALTIME, &e);
-    //printf("SendMessageToAll cost; latency = %.02f us\n", (e.tv_nsec-s.tv_nsec)/1000.0);
-#endif
-
-    return ret;
-}
-
-// Assume we use this only to send replies
-bool FastTransport::SendMessage(TransportReceiver *src, const Message &m) {
+// Assumes we already put the response in c->server.req_handle->pre_resp_msgbuf
+bool FastTransport::SendResponse(size_t msgLen) {
     // we get here from fasttransport_rpc_request
     auto &resp = c->server.req_handle->pre_resp_msgbuf;
-    size_t msgLen = SerializeMessage(m, reinterpret_cast<char *>(resp.buf));
     c->rpc->resize_msg_buffer(&resp, msgLen);
-
-    Debug("SendMessage %s, len = %d", m.GetTypeName().c_str(), msgLen);
-
     c->rpc->enqueue_response(c->server.req_handle, &resp);
-
     return true;
 }
 
@@ -373,53 +257,54 @@ void FastTransport::Run() {
 
 void FastTransport::Stop() {
     Debug("Stopping transport!");
-    stop = true;
 #if FASTTRANSPORT_MEASURE_TIMES
-    fprintf(stderr, "Fast transport statistics:\n");
-    std::sort(c->server.latency_get.begin(), c->server.latency_get.end());
-    std::sort(c->server.latency_prepare.begin(), c->server.latency_prepare.end());
-    std::sort(c->server.latency_commit.begin(), c->server.latency_commit.end());
+    // Discard first third of collected results
 
-    uint64_t latency_get_size = c->server.latency_get.size();
-    uint64_t latency_prepare_size = c->server.latency_prepare.size();
-    uint64_t latency_commit_size = c->server.latency_commit.size();
+    fprintf(stderr, "Printing stats:\n");
+    std::vector<long> latency_get = c->server.latency_get;
+    std::vector<long> latency_prepare = c->server.latency_prepare;
+    std::vector<long> latency_commit = c->server.latency_commit;
 
-    double latency_get_50 = c->server.latency_get[(latency_get_size*50)/100] / kAppLatFac;
-    double latency_get_99 = c->server.latency_get[(latency_get_size*99)/100] / kAppLatFac;
+    std::sort(latency_get.begin() + latency_get.size()/3, latency_get.end() - latency_get.size()/3);
+    std::sort(latency_prepare.begin() + latency_prepare.size()/3, latency_prepare.end() - latency_prepare.size()/3);
+    std::sort(latency_commit.begin() + latency_commit.size()/3, latency_commit.end() - latency_prepare.size()/3);
 
-    double latency_prepare_50 = c->server.latency_prepare[(latency_prepare_size*50)/100] / kAppLatFac;
-    double latency_prepare_99 = c->server.latency_prepare[(latency_prepare_size*99)/100] / kAppLatFac;
+    double latency_get_50 = latency_get[latency_get.size()/3 + ((latency_get.size() - 2 * latency_get.size()/3)*50)/100] / 1000.0;
+    double latency_get_99 = latency_get[latency_get.size()/3 + ((latency_get.size() - 2 * latency_get.size()/3)*99)/100] / 1000.0;
 
-    double latency_commit_50 = c->server.latency_commit[(latency_commit_size*50)/100] / kAppLatFac;
-    double latency_commit_99 = c->server.latency_commit[(latency_commit_size*99)/100] / kAppLatFac;
+    double latency_prepare_50 = latency_prepare[latency_get.size()/3 + ((latency_prepare.size() - 2 * latency_prepare.size()/3)*50)/100] / 1000.0;
+    double latency_prepare_99 = latency_prepare[latency_get.size()/3 + ((latency_prepare.size() - 2 * latency_prepare.size()/3)*99)/100] / 1000.0;
 
-    uint64_t latency_get_sum = std::accumulate(c->server.latency_get.begin(), c->server.latency_get.end(), 0);
-    uint64_t latency_prepare_sum = std::accumulate(c->server.latency_prepare.begin(), c->server.latency_prepare.end(), 0);
-    uint64_t latency_commit_sum = std::accumulate(c->server.latency_commit.begin(), c->server.latency_commit.end(), 0);
+    double latency_commit_50 = latency_commit[latency_get.size()/3 + ((latency_commit.size() - 2 * latency_commit.size()/3)*50)/100] / 1000.0;
+    double latency_commit_99 = latency_commit[latency_get.size()/3 + ((latency_commit.size() - 2 * latency_commit.size()/3)*99)/100] / 1000.0;
 
-    double latency_get_avg = latency_get_sum/latency_get_size/kAppLatFac;
-    double latency_prepare_avg = latency_prepare_sum/latency_prepare_size/kAppLatFac;
-    double latency_commit_avg = latency_commit_sum/latency_commit_size/kAppLatFac;
+    long latency_get_sum = std::accumulate(latency_get.begin() + latency_get.size()/3, latency_get.end() - latency_get.size()/3, 0);
+    long latency_prepare_sum = std::accumulate(latency_prepare.begin() + latency_prepare.size()/3, latency_prepare.end() - latency_prepare.size()/3, 0);
+    long latency_commit_sum = std::accumulate(latency_commit.begin() + latency_commit.size()/3, latency_commit.end() - latency_commit.size()/3, 0);
 
-    fprintf(stderr, "Get latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_get_size,
+    double latency_get_avg = latency_get_sum/(latency_get.size() - 2 * latency_get.size()/3)/1000.0;
+    double latency_prepare_avg = latency_prepare_sum/(latency_prepare.size() - 2 * latency_prepare.size()/3)/1000.0;
+    double latency_commit_avg = latency_commit_sum/(latency_commit.size() - 2 * latency_commit.size()/3)/1000.0;
+
+    fprintf(stderr, "Get latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_get.size(),
             latency_get_avg,
             latency_get_50,
             latency_get_99);
 
-    fprintf(stderr, "Prepare latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_prepare_size,
+    fprintf(stderr, "Prepare latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_prepare.size(),
             latency_prepare_avg,
             latency_prepare_50,
             latency_prepare_99);
 
-    fprintf(stderr, "Commit latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_commit_size,
+    fprintf(stderr, "Commit latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
+            latency_commit.size(),
             latency_commit_avg,
             latency_commit_50,
             latency_commit_99);
-
 #endif
+    stop = true;
 }
 
 int FastTransport::Timer(uint64_t ms, timer_callback_t cb) {
@@ -453,8 +338,7 @@ int FastTransport::Timer(uint64_t ms, timer_callback_t cb) {
     return info->id;
 }
 
-bool
-FastTransport::CancelTimer(int id)
+bool FastTransport::CancelTimer(int id)
 {
     FastTransportTimerInfo *info = timers[id];
 

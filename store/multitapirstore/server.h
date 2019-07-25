@@ -66,25 +66,28 @@ public:
     // Invoke inconsistent operation, no return value
     void ExecInconsistentUpcall(txnid_t txn_id,
                                 RecordEntryIR *crt_txn_state,
-                                const string &str1) override;
+                                bool commit) override;
 
     // Invoke consensus operation
     void ExecConsensusUpcall(txnid_t txn_id,
-                             RecordEntryIR *crt_txn_state,
-                             const string &str1, string &str2) override;
+                            RecordEntryIR *crt_txn_state,
+                            uint8_t nr_reads,
+                            uint8_t nr_writes,
+                            uint64_t timestamp,
+                            uint64_t id,
+                            char *reqBuf,
+                            char *respBuf, size_t &respLen) override;
 
     // Invoke unreplicated operation
-    void UnloggedUpcall(txnid_t txn_id,
-                        const string &str1,
-                        string &str2) override;
+    void UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) override;
 
     void Load(const string &key, const string &value, const Timestamp timestamp) override;
 
     void PrintStats();
 
-    std::vector<uint64_t> latency_get;
-    std::vector<uint64_t> latency_prepare;
-    std::vector<uint64_t> latency_commit;
+    std::vector<long> latency_get;
+    std::vector<long> latency_prepare;
+    std::vector<long> latency_commit;
 
 private:
     std::unique_ptr<ThreadSafeKvs> kvs;

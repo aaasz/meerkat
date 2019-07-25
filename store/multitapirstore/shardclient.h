@@ -121,24 +121,24 @@ private:
     void SendUnreplicated(uint64_t txn_nr,
                           uint32_t core_id,
                           Promise *promise, const std::string &request_str,
-                          replication::continuation_t callback,
+                          replication::unlogged_continuation_t callback,
                           replication::error_continuation_t error_callback);
     void SendInconsistent(uint64_t txn_nr,
                           uint32_t core_id,
-                          Promise *promise,
-                          const std::string &request_str,
-                          replication::continuation_t callback,
+                          bool commit,
+                          replication::inconsistent_continuation_t callback,
                           replication::error_continuation_t error_callback);
     void SendConsensus(uint64_t txn_nr,
                        uint32_t core_id,
                        Promise *promise,
-                       const std::string &request_str,
+                       const Transaction &txn,
+                       const Timestamp &timestamp,
                        replication::ir::decide_t decide,
-                       replication::continuation_t callback,
+                       replication::consensus_continuation_t callback,
                        replication::error_continuation_t error_callback);
 
     /* Tapir's Decide Function. */
-    std::string MultiTapirDecide(const std::map<std::string, std::size_t> &results);
+    int MultiTapirDecide(const std::map<int, std::size_t> &results);
 
     /* Timeout for Get requests, which only go to one replica. */
     void GetTimeout();
@@ -147,10 +147,9 @@ private:
     void GiveUpTimeout();
 
     /* Callbacks for hearing back from a shard for an operation. */
-    void GetCallback(const std::string &, const std::string &);
-    void PrepareCallback(const std::string &, const std::string &);
-    void CommitCallback(const std::string &, const std::string &);
-    void AbortCallback(const std::string &, const std::string &);
+    void GetCallback(char *respBuf);
+    void PrepareCallback(int decidedStatus);
+    void CommitCallback(char *respBuf);
 
     /* Helper Functions for starting and finishing requests */
     void StartRequest();

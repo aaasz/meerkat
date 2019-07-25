@@ -35,6 +35,7 @@
 #include <unordered_map>
 
 #include "store/common/backend/thread_safe_kvs.h"
+#include <boost/unordered_map.hpp>
 
 #define CACHE_LINE_SIZE 64
 
@@ -164,7 +165,7 @@ private:
         char value[max_value_size];
     } __attribute__((__aligned__(CACHE_LINE_SIZE)));
 
-    std::unordered_map<std::string, Entry> kvs_;
+    boost::unordered_map<std::string, Entry> kvs_;
 };
 
 #endif  //  _ATOMIC_KVS_H_

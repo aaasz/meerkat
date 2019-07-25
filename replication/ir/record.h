@@ -45,6 +45,8 @@
 
 #include <boost/functional/hash.hpp>
 
+#include <boost/unordered_map.hpp>
+
 namespace replication {
 namespace ir {
 
@@ -61,7 +63,8 @@ struct RecordEntry
     // latest status
     TransactionStatus txn_status;
     // latest request for this transaction
-    Request request;
+    // TODO: do we need this?
+    //Request request;
     // Read and write sets
     Transaction txn;
     // Commit timestamp
@@ -82,26 +85,26 @@ struct RecordEntry
           view(x.view),
           req_nr(x.req_nr),
           txn_status(x.txn_status),
-          request(x.request),
+          //request(x.request),
           state(x.state),
           result(x.result) {}
     RecordEntry(view_t view, txnid_t txn_id,
                 uint64_t req_nr,
                 TransactionStatus txn_status,
                 proto::RecordEntryState state,
-                const Request &request,
+                //const Request &request,
                 const std::string &result)
         : txn_id(txn_id),
           view(view),
           req_nr(req_nr),
           txn_status(txn_status),
-          request(request),
+          //request(request),
           state(state),
           result(result) {}
     virtual ~RecordEntry() {}
 };
 
-typedef std::unordered_map
+typedef boost::unordered_map
     <txnid_t, RecordEntry,
      boost::hash<std::pair<uint64_t, uint64_t>>>
 RecordMap;
@@ -132,21 +135,21 @@ public:
                      txnid_t txn_id,
                      uint64_t req_nr,
                      TransactionStatus txn_status,
-                     proto::RecordEntryState state,
-                     const Request &request);
+                     proto::RecordEntryState state);
+                     // const Request &request);
     RecordEntry &Add(view_t view,
                      txnid_t txn_id,
                      uint64_t req_nr,
                      TransactionStatus txn_status,
                      proto::RecordEntryState state,
-                     const Request &request,
+                     // const Request &request,
                      const std::string &result);
     RecordEntry *Find(txnid_t txn_id);
     bool SetStatus(txnid_t txn_id, proto::RecordEntryState state);
     bool SetResult(txnid_t txn_id, const std::string &result);
     bool SetTxnStatus(txnid_t txn_id, TransactionStatus txn_status);
     bool SetReqNr(txnid_t txn_id, uint64_t req_nr);
-    bool SetRequest(txnid_t txn_id, const Request &req);
+    // bool SetRequest(txnid_t txn_id, const Request &req);
     void Remove(txnid_t txn_id);
     bool Empty() const;
     void ToProto(proto::RecordProto *proto) const;

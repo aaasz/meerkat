@@ -47,7 +47,8 @@ public:
     
 
     virtual ~TransportReceiver();
-    virtual void ReceiveMessage(const string &type, const string &data, bool &unblock) = 0;
+    virtual void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) = 0;
+    virtual void ReceiveResponse(uint8_t reqType, char *respBuf, bool &unblock) = 0;
 };
 
 typedef std::function<void (void)> timer_callback_t;
@@ -61,12 +62,14 @@ public:
     virtual void Register(TransportReceiver *receiver,
                           const transport::Configuration &config,
                           int replicaIdx) = 0;
-    virtual bool SendMessage(TransportReceiver *src, const Message &m) = 0;
-    virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const Message &m) = 0;
-    virtual bool SendMessageToAll(TransportReceiver *src, const Message &m) = 0;
+    virtual bool SendResponse(size_t msgLen) = 0;
+    virtual bool SendMessageToReplica(uint8_t reqType, int replicaIdx, size_t msgLen) = 0;
+    virtual bool SendMessageToAll(uint8_t reqType, size_t msgLen) = 0;
     virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
     virtual bool CancelTimer(int id) = 0;
     virtual void CancelAllTimers() = 0;
+
+    virtual char *GetRequestBuf() = 0;
 };
 
 class Timeout

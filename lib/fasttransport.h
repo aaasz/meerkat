@@ -66,9 +66,6 @@
  * of the same type.
  */
 
-// Use just one function, TransportRceiver will do the multiplexing
-static constexpr uint8_t reqType = 2;
-
 // eRPC context passed between request and responses
 class AppContext {
     public:
@@ -83,9 +80,9 @@ class AppContext {
         struct {
             // current req_handle
             erpc::ReqHandle *req_handle;
-            std::vector<uint64_t> latency_get;
-            std::vector<uint64_t> latency_prepare;
-            std::vector<uint64_t> latency_commit;
+            std::vector<long> latency_get;
+            std::vector<long> latency_prepare;
+            std::vector<long> latency_commit;
         } server;
 
         // common to both servers and clients
@@ -108,14 +105,13 @@ public:
     int Timer(uint64_t ms, timer_callback_t cb) override;
     bool CancelTimer(int id) override;
     void CancelAllTimers() override;
-    
-    bool SendMessageToReplica(TransportReceiver *src, int replicaIdx,
-                         const Message &m) override;
 
-    // SendMessage is actuall a reply on the same channel we got the request
-    bool SendMessage(TransportReceiver *src, const Message &m) override;
-    bool SendMessageToAll(TransportReceiver *src, const Message &m) override;
+    bool SendMessageToReplica(uint8_t reqType, int replicaIdx, size_t msgLen) override;
+    // TODO: implement this
+    bool SendMessageToAll(uint8_t reqType, size_t msgLen) override { return true; };
+    bool SendResponse(size_t msgLen) override;
 
+    char *GetRequestBuf() override;
 private:
     // The port of the fast NIC
     uint8_t phy_port;
