@@ -115,10 +115,10 @@ void* run_client(void *arg) {
     } else if (mode == MODE_MTAPIR) {
         {
             std::lock_guard<std::mutex> lck (mtx); //guard the libevent setup
-            client = new multitapirstore::Client(configPath, nsthreads, nShards,
-                                             localReplica,
-                                             twopc, replicated,
-                                             TrueTime(skew, error), replScheme);
+            // client = new multitapirstore::Client(configPath, nsthreads, nShards,
+            //                                  localReplica,
+            //                                  twopc, replicated,
+            //                                  TrueTime(skew, error), replScheme);
         }
     } else {
         fprintf(fp, "option -m is required\n");

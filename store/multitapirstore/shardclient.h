@@ -50,7 +50,7 @@ class ShardClientIR : public TxnClient
 {
 public:
     /* Constructor needs path to shard config. */
-    ShardClientIR( const std::string &configPath,
+    ShardClientIR(const transport::Configuration &config,
         Transport *transport,
         uint64_t client_id,
         int shard,
@@ -105,7 +105,7 @@ public:
 private:
     uint64_t client_id; // Unique ID for this client.
     Transport *transport; // Transport layer.
-    transport::Configuration *config;
+    transport::Configuration config;
     int shard; // which shard this client accesses
     int replica; // which replica to use for reads
     bool replicated; // Is the database replicated?

@@ -45,7 +45,9 @@ using namespace std;
 //     ((FastTransport *)transport)->Run();
 // }
 
-Client::Client(const string configFile, int nsthreads, int nShards,
+Client::Client(const transport::Configuration &config,
+               std::string &ip,
+               int nsthreads, int nShards,
                int closestReplica,
                bool twopc, bool replicated, TrueTime timeServer,
                const string replScheme)
@@ -79,9 +81,9 @@ Client::Client(const string configFile, int nsthreads, int nShards,
     //     string shardConfigPath = configPath + to_string(i) + ".config";
     if (replScheme == "ir") {
         // TODO: this is hardcoded
-        transport = new FastTransport("10.100.1.23:31850", nsthreads, 0, true);
+        transport = new FastTransport(config, ip, nsthreads, 0);
         shard_clients.push_back(std::unique_ptr<TxnClient>(
-          new ShardClientIR(configFile, transport, client_id, 0,
+          new ShardClientIR(config, transport, client_id, 0,
                                  closestReplica, replicated)));
 // //        } else if (replScheme == "lir") {
 // //        	transport = new UDPSTransport(nsthreads, 0.0, 0.0);

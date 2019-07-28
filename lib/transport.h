@@ -60,11 +60,10 @@ protected:
 public:
     virtual ~Transport() {}
     virtual void Register(TransportReceiver *receiver,
-                          const transport::Configuration &config,
                           int replicaIdx) = 0;
     virtual bool SendResponse(size_t msgLen) = 0;
-    virtual bool SendMessageToReplica(uint8_t reqType, int replicaIdx, size_t msgLen) = 0;
-    virtual bool SendMessageToAll(uint8_t reqType, size_t msgLen) = 0;
+    virtual bool SendRequestToReplica(uint8_t reqType, int replicaIdx, size_t msgLen, bool blocking) = 0;
+    virtual bool SendRequestToAll(uint8_t reqType, size_t msgLen, bool blocking) = 0;
     virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
     virtual bool CancelTimer(int id) = 0;
     virtual void CancelAllTimers() = 0;

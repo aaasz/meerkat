@@ -323,11 +323,11 @@ def run_benchmark(bench_dir, clients, servers, parameters):
             # allows us to use flamescope [1].
             #
             # [1]: https://github.com/Netflix/flamescope
-            "perf", "record",
-                "-o", "/mnt/log/server_{}_perf.data".format(replica_index),
-                "-g",
-                "--timestamp",
-                "--",
+            #"perf", "record",
+            #    "-o", "/mnt/log/server_{}_perf.data".format(replica_index),
+            #    "-g",
+            #    "--timestamp",
+            #    "--",
             #"LD_PRELOAD=/homes/sys/aaasz/tapir/store/tools/Hoard/src/libhoard.so",
             #"DEBUG=all",
             #"valgrind --tool=callgrind --callgrind-out-file=/tmp/callgrind.txt",
@@ -404,6 +404,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
                 "--nhost", str(host_i),
                 "--numClientThreads", str(parameters.num_threads_per_client),
                 "--secondsFromEpoch", str(seconds),
+                "--ip", str(client.hostname)
             ]
 
             # As with the servers, we record the stdout and stderr of the

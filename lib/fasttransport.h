@@ -37,6 +37,8 @@
 #include "lib/transport.h"
 
 #include "rpc.h"
+#include "rpc_constants.h"
+
 #include "util/numautils.h"
 #include <gflags/gflags.h>
 
@@ -66,15 +68,64 @@
  * of the same type.
  */
 
+// A tag attached to every request we send;
+// it is passed to the response function
+struct req_tag_t {
+    erpc::MsgBuffer req_msgbuf;
+    erpc::MsgBuffer resp_msgbuf;
+    uint8_t reqType;
+    uint8_t sessionIdx;
+    uint8_t sharers;
+};
+
+// A basic mempool for preallocated objects of type T. eRPC has a faster,
+// hugepage-backed one.
+template <class T> class AppMemPool {
+    public:
+        size_t num_to_alloc = 1;
+        std::vector<T *> backing_ptr_vec;
+        std::vector<T *> pool;
+
+    void extend_pool() {
+        T *backing_ptr = new T[num_to_alloc];
+        for (size_t i = 0; i < num_to_alloc; i++) pool.push_back(&backing_ptr[i]);
+        backing_ptr_vec.push_back(backing_ptr);
+        num_to_alloc *= 2;
+    }
+
+    T *alloc() {
+        if (pool.empty()) extend_pool();
+        T *ret = pool.back();
+        pool.pop_back();
+        return ret;
+    }
+
+    void free(T *t) { pool.push_back(t); }
+
+    AppMemPool() {}
+    ~AppMemPool() {
+        for (T *ptr : backing_ptr_vec) delete[] ptr;
+    }
+};
+
 // eRPC context passed between request and responses
 class AppContext {
     public:
         struct {
-            // TODO: these should be vectors
-            // (connection details to every replica)
-            int session_num;
-            erpc::MsgBuffer req_msgbuf;
-            erpc::MsgBuffer resp_msgbuf;
+            std::vector<int> session_num_vec;
+            // TODO: seems like it's not safe to share a msg buffer among more requests -> don't know
+            // when eRPC stops urequiring it
+            // erpc::MsgBuffer req_msgbuf;
+
+            // TODO: seems like it might not be safe to share the response message
+            // erpc::MsgBuffer resp_msgbuf;
+
+            // This is maintained between calls to GetReqBuf and SendRequest
+            // to reduce copying
+            req_tag_t *crt_req_tag;
+            // Request tags used for RPCs exchanged with the servers
+            // TODO: get rid of this and put info in the packet itself?
+            AppMemPool<req_tag_t> req_tag_pool;
         } client;
 
         struct {
@@ -94,10 +145,12 @@ class AppContext {
 class FastTransport : public Transport
 {
 public:
-    FastTransport(std::string local_uri, int nthreads, uint8_t phy_port, bool blocking);
+    FastTransport(const transport::Configuration &config,
+                  std::string &ip,
+                  int nthreads,
+                  uint8_t phy_port);
     virtual ~FastTransport();
     void Register(TransportReceiver *receiver,
-                  const transport::Configuration &config,
                   int replicaIdx) override;
     void Run();
     void Wait();
@@ -106,13 +159,16 @@ public:
     bool CancelTimer(int id) override;
     void CancelAllTimers() override;
 
-    bool SendMessageToReplica(uint8_t reqType, int replicaIdx, size_t msgLen) override;
+    bool SendRequestToReplica(uint8_t reqType, int replicaIdx, size_t msgLen, bool blocking) override;
     // TODO: implement this
-    bool SendMessageToAll(uint8_t reqType, size_t msgLen) override { return true; };
+    bool SendRequestToAll(uint8_t reqType, size_t msgLen, bool blocking) override;
     bool SendResponse(size_t msgLen) override;
 
     char *GetRequestBuf() override;
 private:
+    // Configuration of the replicas
+    transport::Configuration config;
+
     // The port of the fast NIC
     uint8_t phy_port;
 
@@ -121,12 +177,6 @@ private:
 
     // Index of the replica server
     int replicaIdx;
-
-    // The "blocking" variable puts the transport in a blocking mode:
-    // after sending a request, it block until the application unblocks it
-    bool blocking;
-
-    transport::Configuration *config;
 
     struct FastTransportTimerInfo
     {

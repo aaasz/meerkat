@@ -65,16 +65,19 @@ static uint8_t fasttransport_thread_counter;
 
 // Function called when we received a response to a
 // request we sent on this transport (TODO: for now, just GETs)
-static void fasttransport_response(void *_context, void *reqType) {
+static void fasttransport_response(void *_context, void *_tag) {
 #if FASTTRANSPORT_MEASURE_TIMES
     struct timespec s, e;
     clock_gettime(CLOCK_REALTIME, &s);
 #endif
-    Debug("Received respose, reqType = %d", *reinterpret_cast<uint8_t *>(reqType));
     auto *c = static_cast<AppContext *>(_context);
-    c->receiver->ReceiveResponse(*reinterpret_cast<uint8_t *>(reqType),
-                                 reinterpret_cast<char *>(c->client.resp_msgbuf.buf),
+    auto *rt = reinterpret_cast<req_tag_t *>(_tag);
+    Debug("Received respose, reqType = %d", rt->reqType);
+    c->receiver->ReceiveResponse(rt->reqType,
+                                 reinterpret_cast<char *>(rt->resp_msgbuf.buf),
                                  c->unblock);
+    rt->sharers--;
+    if (rt->sharers == 0) c->client.req_tag_pool.free(rt);
 #if FASTTRANSPORT_MEASURE_TIMES
     clock_gettime(CLOCK_REALTIME, &e);
     //printf("fasttransport_rpc_response cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
@@ -106,10 +109,13 @@ static void fasttransport_request(erpc::ReqHandle *req_handle, void *_context) {
 #endif
 }
 
-FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_port, bool blocking)
-    : phy_port(phy_port),
-      nthreads(nthreads),
-      blocking(blocking) {
+FastTransport::FastTransport(const transport::Configuration &config,
+                             std::string &ip,
+                             int nthreads,
+                             uint8_t phy_port)
+    : config(config),
+      phy_port(phy_port),
+      nthreads(nthreads) {
 
     // The first thread to grab the lock initializes the transport
     fasttransport_lock.lock();
@@ -141,6 +147,8 @@ FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_po
         }
 
         // Setup eRPC
+        // we only start one eRPC process, so just use the first port (kBaseSmUdpPort)
+        std::string local_uri = ip + ":" + std::to_string(erpc::kBaseSmUdpPort);
         Debug("Creating nexus objects with local_uri = %s", local_uri.c_str());
         nexus = new erpc::Nexus(local_uri, 0, 0);
         // TODO: give a list of reqType numbers and register them to
@@ -163,8 +171,7 @@ FastTransport::FastTransport(std::string local_uri, int nthreads, uint8_t phy_po
 FastTransport::~FastTransport() {
 }
 
-void FastTransport::Register(TransportReceiver *receiver,
-      const transport::Configuration &config, int replicaIdx) {
+void FastTransport::Register(TransportReceiver *receiver, int replicaIdx) {
 
 	ASSERT(replicaIdx < config.n);
 
@@ -180,22 +187,32 @@ void FastTransport::Register(TransportReceiver *receiver,
     c->receiver = receiver;
     c->unblock = false;
     this->replicaIdx = replicaIdx;
-    this->config = new transport::Configuration(config);
 }
 
 inline char *FastTransport::GetRequestBuf() {
-    return reinterpret_cast<char *>(c->client.req_msgbuf.buf);
+    // create a new request tag
+    c->client.crt_req_tag = c->client.req_tag_pool.alloc();
+    if (c->client.crt_req_tag->req_msgbuf.buf == nullptr)
+        c->client.crt_req_tag->req_msgbuf = c->rpc->alloc_msg_buffer_or_die(c->rpc->get_max_data_per_pkt());
+    if (c->client.crt_req_tag->resp_msgbuf.buf == nullptr)
+        c->client.crt_req_tag->resp_msgbuf = c->rpc->alloc_msg_buffer_or_die(c->rpc->get_max_data_per_pkt());
+    return reinterpret_cast<char *>(c->client.crt_req_tag->req_msgbuf.buf);
 }
 
 // This function assumes the message has already been copied to the
 // req_msgbuf
-bool FastTransport::SendMessageToReplica(uint8_t reqType, int replicaIdx, size_t msgLen) {
+bool FastTransport::SendRequestToReplica(uint8_t reqType, int replicaIdx, size_t msgLen, bool blocking) {
+    ASSERT(replicaIdx < config.n);
 
-    c->rpc->resize_msg_buffer(&c->client.req_msgbuf, msgLen);
-    // TODO: select the corresponding session for replicaIdx
-    c->rpc->enqueue_request(c->client.session_num, reqType, &c->client.req_msgbuf,
-                          &c->client.resp_msgbuf, fasttransport_response,
-                          reinterpret_cast<uint8_t *>(&reqType));
+    c->rpc->resize_msg_buffer(&c->client.crt_req_tag->req_msgbuf, msgLen);
+    c->client.crt_req_tag->reqType = reqType;
+    //c->client.crt_req_tag->sessionIdx = replicaIdx;
+    c->client.crt_req_tag->sharers = 1;
+
+    c->rpc->enqueue_request(c->client.session_num_vec[replicaIdx], reqType,
+                          &c->client.crt_req_tag->req_msgbuf,
+                          &c->client.crt_req_tag->resp_msgbuf, fasttransport_response,
+                          reinterpret_cast<void *>(c->client.crt_req_tag));
     if (blocking) {
         while (!c->unblock) {
             c->rpc->run_event_loop_once();
@@ -205,6 +222,31 @@ bool FastTransport::SendMessageToReplica(uint8_t reqType, int replicaIdx, size_t
 
     return true;
 }
+
+bool FastTransport::SendRequestToAll(uint8_t reqType, size_t msgLen, bool blocking) {
+    c->rpc->resize_msg_buffer(&c->client.crt_req_tag->req_msgbuf, msgLen);
+
+    c->client.crt_req_tag->reqType = reqType;
+    //c->client.crt_req_tag->sessionIdx = i;
+    c->client.crt_req_tag->sharers = config.n;
+
+    for (int i = 0; i < config.n; i++) {
+        c->rpc->enqueue_request(c->client.session_num_vec[i], reqType,
+                              &c->client.crt_req_tag->req_msgbuf,
+                              &c->client.crt_req_tag->resp_msgbuf, fasttransport_response,
+                              reinterpret_cast<void *>(c->client.crt_req_tag));
+    }
+
+    if (blocking) {
+        while (!c->unblock) {
+            c->rpc->run_event_loop_once();
+        }
+        c->unblock = false;
+    }
+
+    return true;
+}
+
 
 // Assumes we already put the response in c->server.req_handle->pre_resp_msgbuf
 bool FastTransport::SendResponse(size_t msgLen) {
@@ -234,22 +276,23 @@ void FastTransport::Run() {
     Debug("rpc object created for this transport");
 
     if (replicaIdx == -1) {
-        // TODO: Open a session to every replica
-        const string &host = config->replica(0).host;
-        const string &port = config->replica(0).port;
-        Debug("Openning eRPC session to %s", (host + ":" + port).c_str());
-        c->client.session_num = c->rpc->create_session(host + ":" + port, id % nthreads);
-
-        while (!c->rpc->is_connected(c->client.session_num)) c->rpc->run_event_loop_once();
+        // Open a session to every replica (on the same port/core)
+        for (int i = 0; i < config.n; i++) {
+            // use the dafault port from eRPC for control path
+            c->client.session_num_vec.push_back(
+                c->rpc->create_session(config.replica(i).host + ":" +
+                                       std::to_string(erpc::kBaseSmUdpPort), id % nthreads));
+            while (!c->rpc->is_connected(c->client.session_num_vec[i])) {
+                c->rpc->run_event_loop_once();
+            }
+            Debug("Opened eRPC session to %s", (config.replica(i).host + ":" + std::to_string(erpc::kBaseSmUdpPort)).c_str());
+        }
     }
-
-    // Pre-allocate MsgBuffers (for now, maximum one packet per RPC)
-    c->client.req_msgbuf = c->rpc->alloc_msg_buffer_or_die(c->rpc->get_max_data_per_pkt());
-    c->client.resp_msgbuf = c->rpc->alloc_msg_buffer_or_die(c->rpc->get_max_data_per_pkt());
 
     Debug("Starting the fast transport!");
 
-    if (!blocking) {
+    // the servers just stay in this loop
+    if (replicaIdx != -1) {
         while(!stop)
             c->rpc->run_event_loop(500);
     }

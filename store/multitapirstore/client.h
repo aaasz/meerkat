@@ -50,10 +50,12 @@ namespace multitapirstore {
 class Client : public ::Client
 {
 public:
-    Client(const std::string configPath, int nThreads,  int nShards,
-	   int closestReplica, bool twopc, bool replicated,
-	   TrueTime timeserver = TrueTime(0,0),
-	   const string replScheme = "ir");
+    Client(const transport::Configuration &config,
+        std::string &ip,
+        int nThreads,  int nShards,
+        int closestReplica, bool twopc, bool replicated,
+        TrueTime timeserver = TrueTime(0,0),
+        const string replScheme = "ir");
     virtual ~Client();
 
     // Overriding functions from ::Client.

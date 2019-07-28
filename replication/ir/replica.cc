@@ -24,7 +24,7 @@ IRReplica::IRReplica(transport::Configuration config, int myIdx,
     : config(std::move(config)), myIdx(myIdx), transport(transport), app(app)
 {
     if (transport != NULL) {
-        transport->Register(this, config, myIdx);
+        transport->Register(this, myIdx);
     } else {
         // we use this for micorbenchmarking, but still issue a warning
         Warning("NULL transport provided to the replication layer");

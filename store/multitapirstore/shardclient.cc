@@ -41,19 +41,11 @@ using namespace std;
  IR Client calls
  *******************************************************/
 
-ShardClientIR::ShardClientIR(const string &configPath,
+ShardClientIR::ShardClientIR(const transport::Configuration &config,
                        Transport *transport, uint64_t client_id, int
                        shard, int closestReplica, bool replicated)
-    : client_id(client_id), transport(transport), shard(shard), replicated(replicated)
-{
-    ifstream configStream(configPath);
-    if (configStream.fail()) {
-        Panic("Unable to read configuration file: %s\n", configPath.c_str());
-    }
-
-    transport::Configuration config(configStream);
-    this->config = &config;
-
+        : config(config), client_id(client_id), transport(transport),
+          shard(shard), replicated(replicated) {
     client = new replication::ir::IRClient(config, transport, client_id);
 
     if (closestReplica == -1) {

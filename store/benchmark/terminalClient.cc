@@ -117,10 +117,10 @@ main(int argc, char **argv)
     }
 
     if (mode == MODE_MTAPIR) {
-        client = new multitapirstore::Client(configPath, nsthreads, nShards,
-                                             closestReplica,
-                                             twopc, replicated,
-                                             TrueTime(0, 0), replScheme);
+        // client = new multitapirstore::Client(configPath, nsthreads, nShards,
+        //                                      closestReplica,
+        //                                      twopc, replicated,
+        //                                      TrueTime(0, 0), replScheme);
     } else if (mode == MODE_DRSILO) {
         // TODO(mwhittaker): Make these command line flags.
         // client = new silostore::Client(configPath, nsthreads, nShards,

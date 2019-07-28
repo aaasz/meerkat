@@ -37,7 +37,7 @@ std::mutex mtx;
 thread_local Client* client;
 thread_local vector<string> results;
 
-void* client_thread_func(int thread_id) {
+void* client_thread_func(int thread_id, transport::Configuration config) {
 
     std::mt19937 core_gen;
     std::mt19937 replica_gen;
@@ -71,13 +71,14 @@ void* client_thread_func(int thread_id) {
 
     //fprintf(stderr, "global_thread_id = %d; localReplica = %d\n", global_thread_id, localReplica);
     if (FLAGS_mode == "mtapir") {
-        {
-            std::lock_guard<std::mutex> lck (mtx); //guard the libevent setup
-            client = new multitapirstore::Client(FLAGS_configFile, FLAGS_numServerThreads, FLAGS_numShards,
-                                                 localReplica,
-                                                 twopc, replicated,
-                                                 TrueTime(FLAGS_skew, FLAGS_error), FLAGS_replScheme);
-        }
+        client = new multitapirstore::Client(config,
+                                            FLAGS_ip,
+                                            FLAGS_numServerThreads,
+                                            FLAGS_numShards,
+                                            localReplica,
+                                            twopc, replicated,
+                                            TrueTime(FLAGS_skew, FLAGS_error),
+                                            FLAGS_replScheme);
     } else {
         fprintf(fp, "option --mode is required\n");
         exit(0);
@@ -235,6 +236,13 @@ main(int argc, char **argv)
     }
     in.close();
 
+    // Load configuration
+    std::ifstream configStream(FLAGS_configFile);
+    if (configStream.fail()) {
+        fprintf(stderr, "unable to read configuration file: %s\n", FLAGS_configFile.c_str());
+    }
+    transport::Configuration config(configStream);
+
     // Create client threads
     std::vector<std::thread> thread_arr(FLAGS_numClientThreads);
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
@@ -242,7 +250,7 @@ main(int argc, char **argv)
         //       number of client processes we start on the host)
         // Unique thread id
         //*tid = nhost + ncpu * ncthreads + i;
-        thread_arr[i] = std::thread(client_thread_func, i);
+        thread_arr[i] = std::thread(client_thread_func, i, config);
         erpc::bind_to_core(thread_arr[i], 0, i);
     }
 

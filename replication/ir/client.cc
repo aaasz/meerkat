@@ -63,7 +63,7 @@ IRClient::IRClient(const transport::Configuration &config,
         Debug("IRClient ID: %lu", this->clientid);
     }
 
-    transport->Register(this, config, -1);
+    transport->Register(this, -1);
 }
 
 IRClient::~IRClient()
@@ -92,8 +92,7 @@ void IRClient::InvokeInconsistent(uint64_t txn_nr,
     reqBuf->client_id = clientid;
     reqBuf->commit = commit;
 
-    // TODO: send to all replicas
-    transport->SendMessageToReplica(inconsistentReqType, 0, sizeof(inconsistent_request_t));
+    transport->SendRequestToAll(inconsistentReqType, sizeof(inconsistent_request_t), false);
 }
 
 void
@@ -136,12 +135,11 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
     reqBuf->nr_reads = txn.getReadSet().size();
     reqBuf->nr_writes = txn.getWriteSet().size();
 
-    txn.serialize(reinterpret_cast<char *>(transport->GetRequestBuf()) + sizeof(consensus_request_header_t));
+    txn.serialize(reinterpret_cast<char *>(reqBuf + 1));
 
-    // TODO: send to all replicas
-    transport->SendMessageToReplica(consensusReqType, 0, sizeof(consensus_request_header_t) +
+    transport->SendRequestToAll(consensusReqType, sizeof(consensus_request_header_t) +
                                                     reqBuf->nr_reads * sizeof(read_t) +
-                                                    reqBuf->nr_writes * sizeof(write_t));
+                                                    reqBuf->nr_writes * sizeof(write_t), true);
 }
 
 void IRClient::InvokeUnlogged(uint64_t txn_nr,
@@ -172,7 +170,7 @@ void IRClient::InvokeUnlogged(uint64_t txn_nr,
     auto *reqBuf = reinterpret_cast<unlogged_request_t *>(transport->GetRequestBuf());
     reqBuf->req_nr = reqId;
     memcpy(reqBuf->key, request.c_str(), request.size());
-    transport->SendMessageToReplica(unloggedReqType, replicaIdx, sizeof(unlogged_request_t));
+    transport->SendRequestToReplica(unloggedReqType, replicaIdx, sizeof(unlogged_request_t), true);
 }
 
 void IRClient::ResendConsensusRequest(const uint64_t reqId) {
@@ -180,9 +178,9 @@ void IRClient::ResendConsensusRequest(const uint64_t reqId) {
     auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
     // reqBuf must already have all field filled in
         // TODO: send to all replicas
-    transport->SendMessageToReplica(consensusReqType, 0, sizeof(consensus_request_header_t) +
+    transport->SendRequestToReplica(consensusReqType, 0, sizeof(consensus_request_header_t) +
                                                     reqBuf->nr_reads * sizeof(read_t) +
-                                                    reqBuf->nr_writes * sizeof(write_t));
+                                                    reqBuf->nr_writes * sizeof(write_t), true);
 }
 
 void IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
@@ -250,8 +248,7 @@ void IRClient::HandleSlowPathConsensus(
     reqBuf->status = req->decidedStatus;
     reqBuf->txn_nr = req->clienttxn_nr;
 
-    // TODO: send to all
-    transport->SendMessageToReplica(finalizeConsensusReqType, 0, sizeof(finalize_consensus_request_t));
+    transport->SendRequestToReplica(finalizeConsensusReqType, 0, sizeof(finalize_consensus_request_t), true);
     req->sent_confirms = true;
     req->timer->Start();
 }
@@ -324,7 +321,7 @@ void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isCons
         // TODO: the reqBuf should already have the necessary information
         // (of the last request)
         // TODO: send to all
-        transport->SendMessageToReplica(finalizeConsensusReqType, 0, sizeof(finalize_consensus_request_t));
+        transport->SendRequestToReplica(finalizeConsensusReqType, 0, sizeof(finalize_consensus_request_t), true);
         req->timer->Reset();
     } else {
     	// aaasz: We don't need this anymore -- we only finalize consensus operations
@@ -372,9 +369,9 @@ void IRClient::HandleUnloggedReply(char *respBuf, bool &unblock) {
 
 void IRClient::HandleInconsistentReply(char *respBuf, bool &unblock) {
     // just check if we need to unblock
-    auto *resp = reinterpret_cast<inconsistent_response_t *>(respBuf);
-    if (lastReqId == resp->req_nr)
-        unblock = true;
+    // auto *resp = reinterpret_cast<inconsistent_response_t *>(respBuf);
+    // if (lastReqId == resp->req_nr)
+    //     unblock = true;
 }
 
 void IRClient::HandleConsensusReply(char *respBuf, bool &unblock) {
