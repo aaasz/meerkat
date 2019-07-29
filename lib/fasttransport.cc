@@ -94,7 +94,7 @@ static void fasttransport_request(erpc::ReqHandle *req_handle, void *_context) {
     auto *c = static_cast<AppContext *>(_context);
     c->server.req_handle = req_handle;
     // upcall to the app
-    c->receiver->ReceiveRequest(req_handle->get_req_type(),
+    c->receiver->ReceiveRequest(req_handle->get_req_msgbuf()->get_req_type(),
                                 reinterpret_cast<char *>(req_handle->get_req_msgbuf()->buf),
                                 reinterpret_cast<char *>(req_handle->pre_resp_msgbuf.buf));
 #if FASTTRANSPORT_MEASURE_TIMES
