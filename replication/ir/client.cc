@@ -108,7 +108,8 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
         transport, 500, [this, reqId]() { ResendConsensusRequest(reqId); }));
     auto transition_to_slow_path_timer =
         std::unique_ptr<Timeout>(new Timeout(transport, 500, [this, reqId]() {
-            TransitionToConsensusSlowPath(reqId);
+            // TODO: new way to deal with this
+            //TransitionToConsensusSlowPath(reqId);
         }));
 
     PendingConsensusRequest *req =
@@ -140,6 +141,7 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
     transport->SendRequestToAll(consensusReqType, core_id, sizeof(consensus_request_header_t) +
                                                     reqBuf->nr_reads * sizeof(read_t) +
                                                     reqBuf->nr_writes * sizeof(write_t), true);
+    // TODO: un-nest the calls to SendRequestAll;
 }
 
 void IRClient::InvokeUnlogged(uint64_t txn_nr,
@@ -200,7 +202,9 @@ void IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
     const std::map<int, consensus_response_t> *quorum =
         req->consensusReplyQuorum.CheckForQuorum();
     if (quorum != nullptr) {
-        HandleSlowPathConsensus(reqId, *quorum, false, req);
+        // TODO - find new way to unblock the call
+        bool unblock;
+        HandleSlowPathConsensus(reqId, *quorum, false, req, unblock);
     }
 }
 
@@ -208,9 +212,9 @@ void IRClient::HandleSlowPathConsensus(
             const uint64_t req_nr,
             const std::map<int, consensus_response_t> &msgs,
             const bool finalized_result_found,
-            PendingConsensusRequest *req) {
+            PendingConsensusRequest *req,
+            bool &unblock) {
     ASSERT(finalized_result_found || msgs.size() >= req->quorumSize);
-    Debug("Handling slow path for request %lu.", req_nr);
 
     // If a finalized result wasn't found, call decide to determine the
     // finalized result.
@@ -248,9 +252,10 @@ void IRClient::HandleSlowPathConsensus(
     reqBuf->status = req->decidedStatus;
     reqBuf->txn_nr = req->clienttxn_nr;
 
-    transport->SendRequestToAll(finalizeConsensusReqType, req->core_id, sizeof(finalize_consensus_request_t), true);
     req->sent_confirms = true;
     req->timer->Start();
+    transport->SendRequestToAll(finalizeConsensusReqType, req->core_id, sizeof(finalize_consensus_request_t), true);
+    unblock = true;
 }
 
 void IRClient::HandleFastPathConsensus(
@@ -303,7 +308,7 @@ void IRClient::HandleFastPathConsensus(
     if (req->transition_to_slow_path_timer) {
         req->transition_to_slow_path_timer.reset();
     }
-    HandleSlowPathConsensus(req_nr, msgs, false, req);
+    HandleSlowPathConsensus(req_nr, msgs, false, req, unblock);
 }
 
 void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isConsensus) {
@@ -320,8 +325,8 @@ void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isCons
 
         // TODO: the reqBuf should already have the necessary information
         // (of the last request)
-        transport->SendRequestToAll(finalizeConsensusReqType, req->core_id, sizeof(finalize_consensus_request_t), true);
         req->timer->Reset();
+        transport->SendRequestToAll(finalizeConsensusReqType, req->core_id, sizeof(finalize_consensus_request_t), true);
     } else {
     	// aaasz: We don't need this anymore -- we only finalize consensus operations
 	    Panic("Not implemented!");
@@ -383,7 +388,7 @@ void IRClient::HandleConsensusReply(char *respBuf, bool &unblock) {
 
     auto it = pendingReqs.find(resp->req_nr);
     if (it == pendingReqs.end()) {
-        Debug(
+        Warning(
             "Client was not expecting a ReplyConsensusMessage for request %lu, "
             "so it is ignoring the request.",
             resp->req_nr);
@@ -420,9 +425,9 @@ void IRClient::HandleConsensusReply(char *respBuf, bool &unblock) {
         req->decidedStatus = resp->status;
         req->reply_consensus_view = resp->view;
         // TODO: what if finalize in a different view?
-        HandleSlowPathConsensus(resp->req_nr, msgs, true, req);
+        HandleSlowPathConsensus(resp->req_nr, msgs, true, req, unblock);
     } else if (req->on_slow_path && msgs.size() >= req->quorumSize) {
-        HandleSlowPathConsensus(resp->req_nr, msgs, false, req);
+        HandleSlowPathConsensus(resp->req_nr, msgs, false, req, unblock);
     } else if (!req->on_slow_path && msgs.size() >= req->superQuorumSize) {
         HandleFastPathConsensus(resp->req_nr, msgs, req, unblock);
     }
@@ -433,14 +438,14 @@ void IRClient::HandleFinalizeConsensusReply(char *respBuf, bool &unblock) {
     auto it = pendingReqs.find(resp->req_nr);
     if (it == pendingReqs.end()) {
         Debug(
-            "We received a ConfirmMessage for operation %lu, but we weren't "
-            "waiting for any ConfirmMessages. We are ignoring the message.",
+            "We received a FinalizeConsensusReply for operation %lu, but we weren't "
+            "waiting for any FinalizeConsensusReply. We are ignoring the message.",
             resp->req_nr);
         return;
     }
 
     Debug(
-        "Client received ConfirmMessage from replica %lu in view %lu for "
+        "Client received FinalizeConsensusReply from replica %lu in view %lu for "
         "request %lu.",
         resp->replicaid, resp->view, resp->req_nr);
 
@@ -475,6 +480,7 @@ void IRClient::HandleFinalizeConsensusReply(char *respBuf, bool &unblock) {
             }
         }
         delete req;
+        unblock = true;
     }
 }
 

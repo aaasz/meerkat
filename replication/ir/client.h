@@ -235,7 +235,8 @@ protected:
         const uint64_t reqid,
         const std::map<int, consensus_response_t> &msgs,
         const bool finalized_result_found,
-        PendingConsensusRequest *req);
+        PendingConsensusRequest *req,
+        bool &unblock);
 
     // HandleFastPathConsensus is called when we're on the fast path and
     // receive a super quorum of responses from the same view.
