@@ -85,7 +85,7 @@ public:
 
     virtual void InvokeUnlogged(
         uint64_t txn_nr,
-        uint32_t core_id,
+        uint8_t core_id,
         int replicaIdx,
         const string &request,
         unlogged_continuation_t continuation,
@@ -93,13 +93,13 @@ public:
         uint32_t timeout = DEFAULT_UNLOGGED_OP_TIMEOUT);
     virtual void InvokeInconsistent(
         uint64_t txn_nr,
-        uint32_t core_id,
+        uint8_t core_id,
         bool commit,
         inconsistent_continuation_t continuation,
         error_continuation_t error_continuation = nullptr);
     virtual void InvokeConsensus(
         uint64_t txn_nr,
-        uint32_t core_id,
+        uint8_t core_id,
         const Transaction &txn,
         const Timestamp &timestamp,
         decide_t decide,
@@ -112,14 +112,14 @@ protected:
         string request;
         uint64_t clientReqId;
         uint64_t clienttxn_nr;
-        uint32_t core_id;
+        uint8_t core_id;
         continuation_t continuation;
         bool continuationInvoked = false;
         std::unique_ptr<Timeout> timer;
         QuorumSet<viewstamp_t, finalize_consensus_response_t> confirmQuorum;
 
         inline PendingRequest(string request, uint64_t clientReqId,
-                              uint64_t clienttxn_nr, uint32_t core_id,
+                              uint64_t clienttxn_nr, uint8_t core_id,
                               continuation_t continuation,
                               std::unique_ptr<Timeout> timer, int quorumSize)
             : request(request),
@@ -138,7 +138,7 @@ protected:
 
         inline PendingUnloggedRequest(
             string request, uint64_t clientReqId, uint64_t clienttxn_nr,
-            uint32_t core_id,
+            uint8_t core_id,
             unlogged_continuation_t get_continuation,
             error_continuation_t error_continuation,
             std::unique_ptr<Timeout> timer)
@@ -153,7 +153,7 @@ protected:
         QuorumSet<viewstamp_t, inconsistent_response_t> inconsistentReplyQuorum;
 
         inline PendingInconsistentRequest(uint64_t clientReqId,
-                                          uint64_t clienttxn_nr, uint32_t core_id,
+                                          uint64_t clienttxn_nr, uint8_t core_id,
                                           inconsistent_continuation_t inconsistent_continuation,
                                           std::unique_ptr<Timeout> timer,
                                           int quorumSize)
@@ -189,7 +189,7 @@ protected:
 
         inline PendingConsensusRequest(
             uint64_t clientReqId, uint64_t clienttxn_nr,
-            uint32_t core_id,
+            uint8_t core_id,
             consensus_continuation_t consensus_continuation,
             std::unique_ptr<Timeout> timer,
             std::unique_ptr<Timeout> transition_to_slow_path_timer,
@@ -208,9 +208,9 @@ protected:
                   std::move(transition_to_slow_path_timer)){};
     };
 
+    transport::Configuration config;
     uint64_t lastReqId;
     std::unordered_map<uint64_t, PendingRequest *> pendingReqs;
-    transport::Configuration config;
     Transport *transport;
     uint64_t clientid;
 

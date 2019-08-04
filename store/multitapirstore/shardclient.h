@@ -61,51 +61,28 @@ public:
     // Overriding from TxnClient
     void Begin(uint64_t txn_nr) override;
     void Get(uint64_t txn_nr,
-            const std::string &key,
-            Promise *promise = NULL) override;
-    void Get(uint64_t txn_nr,
-            const std::string &key,
-            const Timestamp &timestamp,
-            Promise *promise = NULL) override;
-    void Put(uint64_t txn_nr,
-	     const std::string &key,
-	     const std::string &value,
-	     Promise *promise = NULL) override;
-    void Prepare(uint64_t txn_nr,
-                 const Transaction &txn,
-                 const Timestamp &timestamp = Timestamp(),
-                 Promise *promise = NULL) override;
-    void Commit(uint64_t txn_nr,
-                const Transaction &txn,
-                const Timestamp &timestamp = Timestamp(),
-                Promise *promise = NULL) override;
-    void Abort(uint64_t txn_nr,
-               const Transaction &txn,
-               Promise *promise = NULL) override;
-
-    void Get(uint64_t txn_nr,
-             uint32_t core_id,
+             uint8_t core_id,
              const std::string &key,
              Promise *promise = NULL) override;
     void Prepare(uint64_t txn_nr,
-                 uint32_t core_id,
+                 uint8_t core_id,
                  const Transaction &txn,
                  const Timestamp &timestamp = Timestamp(),
                  Promise *promise = NULL) override;
     void Commit(uint64_t txn_nr,
-                uint32_t core_id,
+                uint8_t core_id,
                 const Transaction &txn,
                 const Timestamp &timestamp = Timestamp(),
                 Promise *promise = NULL) override;
     void Abort(uint64_t txn_nr,
-               uint32_t core_id,
+               uint8_t core_id,
                const Transaction &txn,
                Promise *promise = NULL) override;
 
 private:
+    transport::Configuration config;
     uint64_t client_id; // Unique ID for this client.
     Transport *transport; // Transport layer.
-    transport::Configuration config;
     int shard; // which shard this client accesses
     int replica; // which replica to use for reads
     bool replicated; // Is the database replicated?
@@ -118,17 +95,17 @@ private:
                             // cause it uses the same send buffer)
 
     void SendUnreplicated(uint64_t txn_nr,
-                          uint32_t core_id,
+                          uint8_t core_id,
                           Promise *promise, const std::string &request_str,
                           replication::ir::unlogged_continuation_t callback,
                           replication::ir::error_continuation_t error_callback);
     void SendInconsistent(uint64_t txn_nr,
-                          uint32_t core_id,
+                          uint8_t core_id,
                           bool commit,
                           replication::ir::inconsistent_continuation_t callback,
                           replication::ir::error_continuation_t error_callback);
     void SendConsensus(uint64_t txn_nr,
-                       uint32_t core_id,
+                       uint8_t core_id,
                        Promise *promise,
                        const Transaction &txn,
                        const Timestamp &timestamp,

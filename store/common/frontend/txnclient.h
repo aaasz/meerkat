@@ -64,45 +64,12 @@ public:
     // Begin a transaction.
     virtual void Begin(uint64_t id) = 0;
 
-    // Get the value corresponding to key (valid at given timestamp).
-    virtual void Get(uint64_t id,
-                     const std::string &key,
-                     Promise *promise = NULL) = 0;
-
-    virtual void Get(uint64_t id,
-                     const std::string &key,
-                     const Timestamp &timestamp,
-                     Promise *promise = NULL) = 0;
-
-    // Set the value for the given key.
-    virtual void Put(uint64_t id,
-                     const std::string &key,
-                     const std::string &value,
-                     Promise *promise = NULL) = 0;
-
-    // Prepare the transaction.
-    virtual void Prepare(uint64_t id,
-                         const Transaction &txn,
-                         const Timestamp &timestamp = Timestamp(),
-                         Promise *promise = NULL) = 0;
-
-    // Commit all Get(s) and Put(s) since Begin().
-    virtual void Commit(uint64_t id,
-                        const Transaction &txn = Transaction(),
-                        const Timestamp &timestamp = Timestamp(),
-                        Promise *promise = NULL) = 0;
-
-    // Abort all Get(s) and Put(s) since Begin().
-    virtual void Abort(uint64_t id,
-                       const Transaction &txn = Transaction(),
-                       Promise *promise = NULL) = 0;
-
-    /* These next calls are used only by some clients*/
+    /* Multicore implementation */
 
     // Get the value corresponding to key (valid at given timestamp).
     // Message send to the supplied core.
     virtual void Get(uint64_t id,
-                     uint32_t core_id,
+                     uint8_t core_id,
                      const std::string &key,
                      Promise *promise = NULL) {
         Panic("Unimplemented.");
@@ -111,7 +78,7 @@ public:
     // Prepare the transaction.
     // Message send to the supplied core.
     virtual void Prepare(uint64_t id,
-                         uint32_t core_id,
+                         uint8_t core_id,
                          const Transaction &txn,
                          const Timestamp &timestamp = Timestamp(),
                          Promise *promise = NULL) {
@@ -121,7 +88,7 @@ public:
     // Commit all Get(s) and Put(s) since Begin().
     // Message send to the supplied core.
     virtual void Commit(uint64_t id,
-                        uint32_t core_id,
+                        uint8_t core_id,
                         const Transaction &txn = Transaction(),
                         const Timestamp &timestamp = Timestamp(),
                         Promise *promise = NULL) {
@@ -130,7 +97,7 @@ public:
 
     // Abort all Get(s) and Put(s) since Begin().
     virtual void Abort(uint64_t id,
-                       uint32_t core_id,
+                       uint8_t core_id,
                        const Transaction &txn = Transaction(),
                        Promise *promise = NULL) {
         Panic("Unimplemented.");

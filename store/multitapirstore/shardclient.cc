@@ -64,14 +64,12 @@ ShardClientIR::~ShardClientIR()
     delete client;
 }
 
-void
-ShardClientIR::Begin(uint64_t txn_nr)
-{
+void ShardClientIR::Begin(uint64_t txn_nr) {
     Debug("[shard %i] BEGIN: %lu", shard, txn_nr);
 }
 
 void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
-                                     uint32_t core_id,
+                                     uint8_t core_id,
                                      Promise *promise,
                                      const std::string &request_str,
                                      replication::ir::unlogged_continuation_t callback,
@@ -84,19 +82,19 @@ void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
                            error_callback, timeout);
 }
 
-void ShardClientIR::SendConsensus(uint64_t txn_nr, uint32_t core_id, Promise *promise,
+void ShardClientIR::SendConsensus(uint64_t txn_nr, uint8_t core_id, Promise *promise,
                                   const Transaction &txn, const Timestamp &timestamp,
                                   replication::ir::decide_t decide,
                                   replication::ir::consensus_continuation_t callback,
                                   replication::ir::error_continuation_t error_callback) {
 
-    Debug("Sending consensus request to replica %d.", replica);
+    Debug("Sending consensus request ");
     waiting = promise;
     client->InvokeConsensus(txn_nr, core_id, txn, timestamp, decide,
                             callback, error_callback);
 }
 
-void ShardClientIR::SendInconsistent(uint64_t txn_nr, uint32_t core_id,
+void ShardClientIR::SendInconsistent(uint64_t txn_nr, uint8_t core_id,
                                      bool commit,
                                      replication::ir::inconsistent_continuation_t callback,
                                      replication::ir::error_continuation_t error_callback) {
@@ -105,17 +103,8 @@ void ShardClientIR::SendInconsistent(uint64_t txn_nr, uint32_t core_id,
                                callback, error_callback);
 }
 
-void
-ShardClientIR::Get(uint64_t txn_nr, const string &key, Promise *promise)
-{
-    // Send the GET operation to appropriate shard.
-    Panic("Not implemented!");
-}
-
-void
-ShardClientIR::Get(uint64_t txn_nr, uint32_t core_id,
-                   const string &key, Promise *promise)
-{
+void ShardClientIR::Get(uint64_t txn_nr, uint8_t core_id,
+                   const string &key, Promise *promise) {
     // Send the GET operation to appropriate shard.
     Debug("[shard %i] Sending GET [%lu : %s]", shard, txn_nr, key.c_str());
 
@@ -125,37 +114,9 @@ ShardClientIR::Get(uint64_t txn_nr, uint32_t core_id,
       bind(&ShardClientIR::GetTimeout, this));
 }
 
-void
-ShardClientIR::Get(uint64_t txn_nr, const string &key,
-                   const Timestamp &timestamp, Promise *promise)
-{
-    // Send the GET operation to appropriate shard.
-    Panic("Not implemented!");
-}
-
-void
-ShardClientIR::Put(uint64_t txn_nr,
-               const string &key,
-               const string &value,
-               Promise *promise)
-{
-    Panic("Not implemented!");
-}
-
-void
-ShardClientIR::Prepare(uint64_t txn_nr,
-                       const Transaction &txn,
-                       const Timestamp &timestamp, Promise *promise)
-{
-    Panic("Not implemented!");
-}
-
-
-void
-ShardClientIR::Prepare(uint64_t txn_nr,
-                       uint32_t core_id, const Transaction &txn,
-                       const Timestamp &timestamp, Promise *promise)
-{
+void ShardClientIR::Prepare(uint64_t txn_nr,
+                       uint8_t core_id, const Transaction &txn,
+                       const Timestamp &timestamp, Promise *promise) {
     Debug("[shard %i] Sending PREPARE [%lu]", shard, txn_nr);
 
     SendConsensus(txn_nr, core_id, promise, txn, timestamp,
@@ -205,19 +166,9 @@ int ShardClientIR::MultiTapirDecide(const std::map<int, std::size_t> &results) {
     return REPLY_OK;
 }
 
-void
-ShardClientIR::Commit(uint64_t txn_nr,
+void ShardClientIR::Commit(uint64_t txn_nr, uint8_t core_id,
                       const Transaction &txn,
-                      const Timestamp &timestamp, Promise *promise)
-{
-    Panic("Not implemented!");
-}
-
-void
-ShardClientIR::Commit(uint64_t txn_nr, uint32_t core_id,
-                      const Transaction &txn,
-                      const Timestamp &timestamp, Promise *promise)
-{
+                      const Timestamp &timestamp, Promise *promise) {
 
     Debug("[shard %i] Sending COMMIT [%lu]", shard, txn_nr);
 
@@ -226,17 +177,8 @@ ShardClientIR::Commit(uint64_t txn_nr, uint32_t core_id,
                placeholders::_1), nullptr);
 }
 
-void
-ShardClientIR::Abort(uint64_t txn_nr,
-                     const Transaction &txn, Promise *promise)
-{
-    Panic("Not implemented!");
-}
-
-void
-ShardClientIR::Abort(uint64_t txn_nr, uint32_t core_id,
-                     const Transaction &txn, Promise *promise)
-{
+void ShardClientIR::Abort(uint64_t txn_nr, uint8_t core_id,
+                     const Transaction &txn, Promise *promise) {
     Debug("[shard %i] Sending ABORT [%lu]", shard, txn_nr);
 
     SendInconsistent(txn_nr, core_id, false,

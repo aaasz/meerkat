@@ -41,7 +41,7 @@ BufferClient::~BufferClient() { }
 
 /* Begins a transaction. */
 void
-BufferClient::Begin(uint64_t tid, uint32_t core_id)
+BufferClient::Begin(uint64_t tid, uint8_t core_id)
 {
     // Initialize data structures.
     txn = Transaction();
@@ -75,10 +75,7 @@ BufferClient::Get(const string &key, Promise *promise)
     Promise p(GET_TIMEOUT);
     Promise *pp = (promise != NULL) ? promise : &p;
 
-    if (core_id == -1)
-        txnclient->Get(tid, key, pp);
-    else
-        txnclient->Get(tid, core_id, key, pp);
+    txnclient->Get(tid, core_id, key, pp);
     if (pp->GetReply() == REPLY_OK) {
         Debug("Adding [%s] with ts %lu", key.c_str(), pp->GetTimestamp().getTimestamp());
         txn.addReadSet(key, pp->GetTimestamp());
@@ -100,29 +97,20 @@ BufferClient::Put(const string &key, const string &value, Promise *promise)
 void
 BufferClient::Prepare(const Timestamp &timestamp, Promise *promise)
 {
-    if (core_id == -1)
-        txnclient->Prepare(tid, txn, timestamp, promise);
-    else
-        txnclient->Prepare(tid, core_id, txn, timestamp, promise);
+    txnclient->Prepare(tid, core_id, txn, timestamp, promise);
 }
 
 void
 BufferClient::Commit(const Timestamp &timestamp, Promise *promise)
 {
-    if (core_id == -1)
-        txnclient->Commit(tid, txn, timestamp, promise);
-    else
-        txnclient->Commit(tid, core_id, txn, timestamp, promise);
+    txnclient->Commit(tid, core_id, txn, timestamp, promise);
 }
 
 /* Aborts the ongoing transaction. */
 void
 BufferClient::Abort(Promise *promise)
 {
-    if (core_id == -1)
-        txnclient->Abort(tid, txn, promise);
-    else
-        txnclient->Abort(tid, core_id, txn, promise);
+    txnclient->Abort(tid, core_id, txn, promise);
 }
 
 void

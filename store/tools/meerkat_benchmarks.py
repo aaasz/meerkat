@@ -92,54 +92,28 @@ def azure_servers():
         RemoteHost('10.101.0.9') : None, # multitapir-server-3
     }
 
-
+# The phy_port identifies the index of the active NIC port to use
+# to send dataplane traffic.
+# For Mellanox NICs the index used is identical to the one
+# listed by ibv_devinfo.
 def zookeeper_clients():
-    return [
-        RemoteHost('10.100.5.153'), # vicuna-1g
-        #RemoteHost('10.100.1.2'), # anteater
-        #RemoteHost('10.100.1.3'), # bongo
-        #RemoteHost('10.100.1.4'), # capybara
-        #RemoteHost('10.100.1.5'), # dikdik
-        #RemoteHost('10.100.1.6'), # eland
-        #RemoteHost('10.100.1.7'), # fossa
-        #RemoteHost('10.100.1.10'), # ibex
-        #RemoteHost('10.100.1.13'), # lemur
-        #RemoteHost('10.100.1.14'), # mongoose
-        #RemoteHost('10.100.1.15'), # nyala
-        #RemoteHost('10.100.1.17'), # platypus
-        #RemoteHost('10.100.1.19'), # rhinoceros
-        #RemoteHost('10.100.1.20'), # sloth
-        #RemoteHost('10.100.1.39'), # tradewars
-        #RemoteHost('10.100.1.35'), # pitfall
-        #RemoteHost('10.100.1.22'), # unicorn
-        #RemoteHost('10.100.1.23'), # vicuna
-    ]
-
+    return {
+        RemoteHost('10.100.1.2') : {'phys_port'  : 1}, # anteater
+        #RemoteHost('10.100.1.3') : {'phys_port'  : 0}, # bongo
+        #RemoteHost('10.100.1.4') : {'phys_port'  : 1}, # capybara
+        #RemoteHost('10.100.1.7') : {'phys_port'  : 1}, # fossa
+        #RemoteHost('10.100.1.13'): {'phys_port'  : 1}, # lemur
+        #RemoteHost('10.100.1.14'): {'phys_port'  : 1}, # mongoose
+        #RemoteHost('10.100.1.16'): {'phys_port'  : 1}, # okapi
+        #RemoteHost('10.100.1.17'): {'phys_port'  : 1}, # platypus
+        #RemoteHost('10.100.1.20'): {'phys_port'  : 1}, # sloth
+    }
 
 def zookeeper_servers():
     return {
-        #RemoteHost('10.100.1.27') : {'iface'       : 'ens1',
-        #                             'irq_numbers' : range(83, 99),
-        #                             'start_port'  : 51736}, # platypus
-        #RemoteHost('10.100.1.19') : {'iface'       : 'ens1',
-        #                             'irq_numbers' : range(123, 139),
-        #                             'start_port'  : 51736}, # rhino
-        RemoteHost('10.100.5.174') : {'iface'       : 'ens1',
-                                     'irq_numbers' : range(123, 139),
-                                     'start_port'  : 51736}, # tapir-1g
-    }
-
-def zookeeper_new_servers():
-    return {
-        RemoteHost('10.100.1.21') : {'iface'       : 'enp94s0',
-                                     'irq_numbers' : range(283, 342),
-                                     'start_port'  : 51736}, # tapir
-        RemoteHost('10.100.1.22') : {'iface'       : 'enp94s0',
-                                     'irq_numbers' : range(283, 342),
-                                     'start_port'  : 51736}, # unicorn
-        RemoteHost('10.100.1.23') : {'iface'       : 'enp94s0',
-                                     'irq_numbers' : range(283, 342),
-                                     'start_port'  : 51736}, # vicuna
+        RemoteHost('10.100.5.153') : {'phys_port'  : 0}, # vicuna-1g
+        RemoteHost('10.100.5.174') : {'phys_port'  : 0}, # tapir-1g
+        RemoteHost('10.100.5.191') : {'phys_port'  : 0}, # unicorn-1g
     }
 
 def num_clients_to_triple(num_clients):
@@ -282,18 +256,18 @@ def run_benchmark(bench_dir, clients, servers, parameters):
     # Clear the clients' and servers' out and err files in /mnt/log.
     print(boxed('Clearing *_out.txt and *_err.txt'))
     clear_out_files = Parallel([host.run(['rm', '/mnt/log/*_out.txt'])
-                                for host in clients + list(servers.keys())],
+                                for host in list(clients.keys()) + list(servers.keys())],
                                 aggregate=True)
     clear_out_files.start(wait=True)
     clear_err_files = Parallel([host.run(['rm', '/mnt/log/*_err.txt'])
-                                for host in clients + list(servers.keys())],
+                                for host in list(clients.keys()) + list(servers.keys())],
                                 aggregate=True)
     clear_err_files.start(wait=True)
 
     # Clear the clients' log files in /mnt/log.
     print(boxed('Clearing *.log'))
     clear_log_files = Parallel([client.run(['rm', '/mnt/log/*.log'])
-                                for client in clients],
+                                for client in list(clients.keys())],
                                 aggregate=True)
     clear_log_files.start(wait=True)
 
@@ -378,7 +352,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
     print(boxed('Starting clients at {}.'.format(datetime.datetime.now())))
     seconds = int(time.time()) # total seconds that passed since unix epoch
     client_tasks = []
-    for host_i, client in enumerate(clients[:parameters.num_client_machines]):
+    for host_i, client in enumerate(list(clients.keys()[:parameters.num_client_machines])):
         for client_i in range(parameters.num_clients_per_machine):
             cmd = [
                 "sudo",
@@ -404,7 +378,8 @@ def run_benchmark(bench_dir, clients, servers, parameters):
                 "--nhost", str(host_i),
                 "--numClientThreads", str(parameters.num_threads_per_client),
                 "--secondsFromEpoch", str(seconds),
-                "--ip", str(client.hostname)
+                "--ip", str(client.hostname),
+                "--physPort", str(clients[client]['phys_port'])
             ]
 
             # As with the servers, we record the stdout and stderr of the
@@ -427,7 +402,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
     # Copy stdout and stderr files over.
     print(boxed('Copying *_out.txt and *_err.txt.'))
-    for host in list(servers.keys()) + clients:
+    for host in list(servers.keys()) + list(clients.keys()):
         subprocess.call([
             'scp',
             '{}:/mnt/log/*_out.txt'.format(host.hostname),
@@ -441,7 +416,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
     # Copy the client logs over.
     print(boxed('Copying *.log.'))
-    for client in clients[:parameters.num_client_machines]:
+    for client in list(clients.keys()[:parameters.num_client_machines]):
         subprocess.call([
             'scp',
             '{}:/mnt/log/*.log'.format(client.hostname),

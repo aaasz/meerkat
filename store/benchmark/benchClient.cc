@@ -44,7 +44,7 @@ void* client_thread_func(int thread_id, transport::Configuration config) {
     std::uniform_int_distribution<uint32_t> core_dis(0, FLAGS_numServerThreads - 1);
     std::uniform_int_distribution<uint32_t> replica_dis(0, nReplicas - 1);
     std::random_device rd;
-    uint32_t preferred_core_id;
+    uint8_t preferred_core_id;
     uint32_t localReplica = -1;
 
     core_gen = std::mt19937(rd());
@@ -73,9 +73,11 @@ void* client_thread_func(int thread_id, transport::Configuration config) {
     if (FLAGS_mode == "mtapir") {
         client = new multitapirstore::Client(config,
                                             FLAGS_ip,
+                                            FLAGS_physPort,
                                             FLAGS_numServerThreads,
                                             FLAGS_numShards,
                                             localReplica,
+                                            preferred_core_id,
                                             twopc, replicated,
                                             TrueTime(FLAGS_skew, FLAGS_error),
                                             FLAGS_replScheme);

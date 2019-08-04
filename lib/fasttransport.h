@@ -54,6 +54,8 @@
 #include <atomic>
 #include <netinet/in.h>
 
+#include <boost/unordered_map.hpp>
+
 /*
  * Class FastTransport implements a multi-threaded DPDK
  * transport layer based on eRPC which works with
@@ -74,8 +76,7 @@ struct req_tag_t {
     erpc::MsgBuffer req_msgbuf;
     erpc::MsgBuffer resp_msgbuf;
     uint8_t reqType;
-    uint8_t sessionIdx;
-    uint8_t sharers;
+    //uint8_t sessionIdx;
 };
 
 // A basic mempool for preallocated objects of type T. eRPC has a faster,
@@ -140,6 +141,7 @@ class AppContext {
         bool unblock; // used by the application to unblock the latest request
         TransportReceiver *receiver = nullptr;
         erpc::Rpc<erpc::CTransport> *rpc = nullptr;
+        boost::unordered_map<std::pair<uint8_t, uint8_t>, int> sessions;
 };
 
 class FastTransport : public Transport
@@ -159,9 +161,9 @@ public:
     bool CancelTimer(int id) override;
     void CancelAllTimers() override;
 
-    bool SendRequestToReplica(uint8_t reqType, int replicaIdx, size_t msgLen, bool blocking) override;
+    bool SendRequestToReplica(uint8_t reqType, uint8_t replicaIdx, uint8_t coreIdx, size_t msgLen, bool blocking) override;
     // TODO: implement this
-    bool SendRequestToAll(uint8_t reqType, size_t msgLen, bool blocking) override;
+    bool SendRequestToAll(uint8_t reqType, uint8_t coreIdx, size_t msgLen, bool blocking) override;
     bool SendResponse(size_t msgLen) override;
 
     char *GetRequestBuf() override;
@@ -197,17 +199,14 @@ private:
     timers_map timers;
     std::mutex timers_lock;
 
-    bool SendMessageInternal(TransportReceiver *src, int replicaIdx,
-                         const Message &m);
+    int GetSession(uint8_t replicaIdx, uint8_t coreIdx);
+    bool SendMessageInternal(TransportReceiver *src, int replicaIdx, const Message &m);
     void OnTimer(FastTransportTimerInfo *info);
-    static void SocketCallback(evutil_socket_t fd,
-                               short what, void *arg);
-    static void TimerCallback(evutil_socket_t fd,
-                              short what, void *arg);
+    static void SocketCallback(evutil_socket_t fd, short what, void *arg);
+    static void TimerCallback(evutil_socket_t fd, short what, void *arg);
     static void LogCallback(int severity, const char *msg);
     static void FatalCallback(int err);
-    static void SignalCallback(evutil_socket_t fd,
-                               short what, void *arg);
+    static void SignalCallback(evutil_socket_t fd, short what, void *arg);
 };
 
 // A basic session management handler that expects successful responses

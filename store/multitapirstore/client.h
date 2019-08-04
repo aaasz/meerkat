@@ -52,8 +52,11 @@ class Client : public ::Client
 public:
     Client(const transport::Configuration &config,
         std::string &ip,
+        uint8_t phys_port,
         int nThreads,  int nShards,
-        int closestReplica, bool twopc, bool replicated,
+        uint8_t closestReplica,
+        uint8_t preferred_core_id,
+        bool twopc, bool replicated,
         TrueTime timeserver = TrueTime(0,0),
         const string replScheme = "ir");
     virtual ~Client();
@@ -76,7 +79,7 @@ private:
     uint64_t t_id;
 
     // Ongoing transaction's mapping to a core.
-    uint32_t core_id;
+    uint8_t core_id;
 
     // Number of cores/threads on the server.
     int nsthreads;

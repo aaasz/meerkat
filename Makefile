@@ -10,37 +10,45 @@ LD = clang++
 EXPAND = lib/tmpl/expand
 
 ERPC_PATH= "/biggerraid/users/aaasz/eRPC"
+ERPC_CFLAGS := -I $(ERPC_PATH)/src -DRAW=true
+ERPC_LDFLAGS := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -libverbs
+
+CFLAGS_WARNINGS:= -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -Wno-uninitialized
 
 # -fno-omit-frame-pointer is needed to get accurate flame graphs. See [1] for
 # more information.
 #
 # [1]: http://www.brendangregg.com/perf.html#FlameGraphs
-CFLAGS := -g -Wall -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -pthread -iquote.obj/gen -Wno-uninitialized -O2 -DNASSERT -I $(ERPC_PATH)/src -DRAW=true -fno-omit-frame-pointer
-#CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -fno-omit-frame-pointer
+CFLAGS := -g -Wall $(CFLAGS_WARNINGS) -iquote.obj/gen -O2 -DNASSERT -fno-omit-frame-pointer
 CXXFLAGS := -g -std=c++0x
-#CXXFLAGS := -g -std=c++0x -fsanitize=thread
-LDFLAGS := -L $(ERPC_PATH)/build -levent_pthreads -lerpc -lnuma -ldl -lgflags -libverbs
-#LDFLAGS := -levent_pthreads -fsanitize=thread
-## Debian package: check
+LDFLAGS := -levent_pthreads -pthread
+
+## Add ERPC flags ##
+CFLAGS += $(ERPC_CFLAGS)
+LDFLAGS += $(ERPC_LDFLAGS)
+
+## Debian package: check ##
 #CHECK_CFLAGS := $(shell pkg-config --cflags check)
 #CHECK_LDFLAGS := $(shell pkg-config --cflags --libs check)
-# Debian package: libprotobuf-dev
-PROTOBUF_CFLAGS := $(shell pkg-config --cflags protobuf)
-PROTOBUF_LDFLAGS := $(shell pkg-config --cflags --libs protobuf)
-CFLAGS += $(PROTOBUF_CFLAGS)
-LDFLAGS += $(PROTOBUF_LDFLAGS)
-PROTOC := protoc
-# Debian package: libevent-dev
+
+## Debian package: libprotobuf-dev ##
+#PROTOBUF_CFLAGS := $(shell pkg-config --cflags protobuf)
+#PROTOBUF_LDFLAGS := $(shell pkg-config --cflags --libs protobuf)
+#CFLAGS += $(PROTOBUF_CFLAGS)
+#LDFLAGS += $(PROTOBUF_LDFLAGS)
+#PROTOC := protoc
+
+## Debian package: libevent-dev ##
 LIBEVENT_CFLAGS := $(shell pkg-config --cflags libevent)
 LIBEVENT_LDFLAGS := $(shell pkg-config --libs libevent)
 CFLAGS += $(LIBEVENT_CFLAGS)
 LDFLAGS += $(LIBEVENT_LDFLAGS)
-# Debian package: libssl-dev
+
+## Debian package: libssl-dev ##
 LIBSSL_CFLAGS := $(shell pkg-config --cflags openssl)
 LIBSSL_LDFLAGS := $(shell pkg-config --libs openssl)
 CFLAGS += $(LIBSSL_CFLAGS)
 LDFLAGS += $(LIBSSL_LDFLAGS)
-
 
 # Google test framework. This doesn't use pkgconfig
 GTEST_DIR := /usr/src/gtest
@@ -143,13 +151,13 @@ include store/benchmark/Rules.mk
 #
 # Protocols
 #
-PROTOOBJS := $(PROTOS:%.proto=.obj/%.o)
-PROTOSRCS := $(PROTOS:%.proto=.obj/gen/%.pb.cc)
-PROTOHEADERS := $(PROTOS:%.proto=%.pb.h)
+#PROTOOBJS := $(PROTOS:%.proto=.obj/%.o)
+#PROTOSRCS := $(PROTOS:%.proto=.obj/gen/%.pb.cc)
+#PROTOHEADERS := $(PROTOS:%.proto=%.pb.h)
 
-$(PROTOSRCS) : .obj/gen/%.pb.cc: %.proto
-	@mkdir -p .obj/gen
-	$(call trace,PROTOC,$^,$(PROTOC) --cpp_out=.obj/gen $^)
+#$(PROTOSRCS) : .obj/gen/%.pb.cc: %.proto
+#	@mkdir -p .obj/gen
+#	$(call trace,PROTOC,$^,$(PROTOC) --cpp_out=.obj/gen $^)
 
 #
 # Compilation

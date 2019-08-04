@@ -44,7 +44,7 @@ public:
     ~BufferClient();
 
     // Begin a transaction with given tid.
-    void Begin(uint64_t tid, uint32_t core_id);
+    void Begin(uint64_t tid, uint8_t core_id);
 
     // Get value corresponding to key.
     void Get(const std::string &key, Promise *promise = NULL);
@@ -79,7 +79,7 @@ private:
     uint64_t tid;
 
     // For solutions that map transactions to core_id.
-    uint32_t core_id;
+    uint8_t core_id;
 };
 
 #endif /* _BUFFER_CLIENT_H_ */

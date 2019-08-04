@@ -76,7 +76,7 @@ IRClient::~IRClient()
 // TODO: make this more general -- the replication layer must not do the app
 // message serialization as well
 void IRClient::InvokeInconsistent(uint64_t txn_nr,
-                             uint32_t core_id,
+                             uint8_t core_id,
                              bool commit,
                              inconsistent_continuation_t continuation,
                              error_continuation_t error_continuation) {
@@ -92,12 +92,12 @@ void IRClient::InvokeInconsistent(uint64_t txn_nr,
     reqBuf->client_id = clientid;
     reqBuf->commit = commit;
 
-    transport->SendRequestToAll(inconsistentReqType, sizeof(inconsistent_request_t), false);
+    transport->SendRequestToAll(inconsistentReqType, core_id, sizeof(inconsistent_request_t), false);
 }
 
 void
 IRClient::InvokeConsensus(uint64_t txn_nr,
-                          uint32_t core_id,
+                          uint8_t core_id,
                           const Transaction &txn,
                           const Timestamp &timestamp,
                           decide_t decide,
@@ -137,13 +137,13 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
 
     txn.serialize(reinterpret_cast<char *>(reqBuf + 1));
 
-    transport->SendRequestToAll(consensusReqType, sizeof(consensus_request_header_t) +
+    transport->SendRequestToAll(consensusReqType, core_id, sizeof(consensus_request_header_t) +
                                                     reqBuf->nr_reads * sizeof(read_t) +
                                                     reqBuf->nr_writes * sizeof(write_t), true);
 }
 
 void IRClient::InvokeUnlogged(uint64_t txn_nr,
-                         uint32_t core_id,
+                         uint8_t core_id,
                          int replicaIdx,
                          const string &request,
                          unlogged_continuation_t continuation,
@@ -170,7 +170,7 @@ void IRClient::InvokeUnlogged(uint64_t txn_nr,
     auto *reqBuf = reinterpret_cast<unlogged_request_t *>(transport->GetRequestBuf());
     reqBuf->req_nr = reqId;
     memcpy(reqBuf->key, request.c_str(), request.size());
-    transport->SendRequestToReplica(unloggedReqType, replicaIdx, sizeof(unlogged_request_t), true);
+    transport->SendRequestToReplica(unloggedReqType, replicaIdx, core_id, sizeof(unlogged_request_t), true);
 }
 
 void IRClient::ResendConsensusRequest(const uint64_t reqId) {
@@ -178,7 +178,7 @@ void IRClient::ResendConsensusRequest(const uint64_t reqId) {
     auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
     // reqBuf must already have all field filled in
         // TODO: send to all replicas
-    transport->SendRequestToReplica(consensusReqType, 0, sizeof(consensus_request_header_t) +
+    transport->SendRequestToReplica(consensusReqType, 0, 0, sizeof(consensus_request_header_t) +
                                                     reqBuf->nr_reads * sizeof(read_t) +
                                                     reqBuf->nr_writes * sizeof(write_t), true);
 }
@@ -248,7 +248,7 @@ void IRClient::HandleSlowPathConsensus(
     reqBuf->status = req->decidedStatus;
     reqBuf->txn_nr = req->clienttxn_nr;
 
-    transport->SendRequestToReplica(finalizeConsensusReqType, 0, sizeof(finalize_consensus_request_t), true);
+    transport->SendRequestToAll(finalizeConsensusReqType, req->core_id, sizeof(finalize_consensus_request_t), true);
     req->sent_confirms = true;
     req->timer->Start();
 }
@@ -320,8 +320,7 @@ void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isCons
 
         // TODO: the reqBuf should already have the necessary information
         // (of the last request)
-        // TODO: send to all
-        transport->SendRequestToReplica(finalizeConsensusReqType, 0, sizeof(finalize_consensus_request_t), true);
+        transport->SendRequestToAll(finalizeConsensusReqType, req->core_id, sizeof(finalize_consensus_request_t), true);
         req->timer->Reset();
     } else {
     	// aaasz: We don't need this anymore -- we only finalize consensus operations
@@ -378,7 +377,7 @@ void IRClient::HandleConsensusReply(char *respBuf, bool &unblock) {
     auto *resp = reinterpret_cast<consensus_response_t *>(respBuf);
 
     Debug(
-        "Client received ReplyConsensusMessage from replica %i in view %lu for "
+        "Client received ReplyConsensusMessage from replica %lu in view %lu for "
         "request %lu.",
         resp->replicaid, resp->view, resp->req_nr);
 
@@ -441,7 +440,7 @@ void IRClient::HandleFinalizeConsensusReply(char *respBuf, bool &unblock) {
     }
 
     Debug(
-        "Client received ConfirmMessage from replica %i in view %lu for "
+        "Client received ConfirmMessage from replica %lu in view %lu for "
         "request %lu.",
         resp->replicaid, resp->view, resp->req_nr);
 

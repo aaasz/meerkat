@@ -47,11 +47,13 @@ using namespace std;
 
 Client::Client(const transport::Configuration &config,
                std::string &ip,
+               uint8_t phys_port,
                int nsthreads, int nShards,
-               int closestReplica,
+               uint8_t closestReplica,
+               uint8_t preferred_core_id,
                bool twopc, bool replicated, TrueTime timeServer,
                const string replScheme)
-    : t_id(0), core_id(0), nsthreads(nsthreads), nshards(nShards), replicated(replicated), twopc(twopc),
+    : t_id(0), core_id(preferred_core_id), nsthreads(nsthreads), nshards(nShards), replicated(replicated), twopc(twopc),
       timeServer(timeServer), replScheme(replScheme), core_dis(0, nsthreads -1)
 {
     // Initialize all state here;
@@ -80,8 +82,7 @@ Client::Client(const transport::Configuration &config,
     // for (uint64_t i = 0; i < nshards; i++) {
     //     string shardConfigPath = configPath + to_string(i) + ".config";
     if (replScheme == "ir") {
-        // TODO: this is hardcoded
-        transport = new FastTransport(config, ip, nsthreads, 0);
+        transport = new FastTransport(config, ip, nsthreads, phys_port);
         shard_clients.push_back(std::unique_ptr<TxnClient>(
           new ShardClientIR(config, transport, client_id, 0,
                                  closestReplica, replicated)));
@@ -134,10 +135,6 @@ Client::Begin()
 {
     Debug("BEGIN [%lu]", t_id + 1);
     t_id++;
-    if (replScheme == "vr")
-        core_id = -1;
-    else
-        core_id = core_dis(core_gen);
     participants.clear();
 }
 

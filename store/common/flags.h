@@ -30,5 +30,6 @@ DEFINE_uint32(skew, 0, "Difference between real clock and TrueTime");
 DEFINE_uint32(error, 0, "Error bars");
 DEFINE_string(mode, "mtapir", "What store client to run");
 DEFINE_string(ip, "", "Client's IP -- to be used on control path");
+DEFINE_uint32(physPort, 0, "Port of the NIC device to use");
 
 #endif /* _FLAGS_H_ */
