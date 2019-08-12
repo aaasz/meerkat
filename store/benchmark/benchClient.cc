@@ -11,6 +11,8 @@
 #include "store/multitapirstore/client.h"
 #include "store/common/flags.h"
 
+#include <boost/fiber/all.hpp>
+
 #include <signal.h>
 #include <random>
 
@@ -22,7 +24,6 @@ int rand_key();
 bool ready = false;
 double *zipf;
 vector<string> keys;
-int nReplicas = 1; // Number of replicas TODO:get this from command line
 std::mt19937 key_gen;
 vector<std::uniform_int_distribution<uint32_t>> keys_distributions;
 thread_local std::uniform_int_distribution<uint32_t> key_dis;
@@ -32,20 +33,21 @@ thread_local std::uniform_int_distribution<uint32_t> key_dis;
 bool twopc = false;
 bool replicated = true;
 
-std::mutex mtx;
-
-thread_local Client* client;
-thread_local vector<string> results;
-
-void* client_thread_func(int thread_id, transport::Configuration config) {
+void client_fiber_func(int thread_id,
+                transport::Configuration config,
+                FastTransport *transport) {
+    Client* client;
+    vector<string> results;
 
     std::mt19937 core_gen;
     std::mt19937 replica_gen;
-    std::uniform_int_distribution<uint32_t> core_dis(0, FLAGS_numServerThreads - 1);
-    std::uniform_int_distribution<uint32_t> replica_dis(0, nReplicas - 1);
+    //std::uniform_int_distribution<uint32_t> core_dis(0, FLAGS_numServerThreads - 1);
+    //std::uniform_int_distribution<uint32_t> replica_dis(0, nReplicas - 1);
     std::random_device rd;
-    uint8_t preferred_core_id;
+    uint8_t preferred_thread_id;
     uint32_t localReplica = -1;
+
+    printf("In client func\n");
 
     core_gen = std::mt19937(rd());
     replica_gen = std::mt19937(rd());
@@ -60,11 +62,18 @@ void* client_thread_func(int thread_id, transport::Configuration config) {
     // replica cores.
 
     //preferred_core_id = core_dis(core_gen);
-    preferred_core_id = global_thread_id % FLAGS_numServerThreads;
+
+    // pick the prepare and commit thread on the replicas in a round-robin fashion
+    preferred_thread_id = global_thread_id % FLAGS_numServerThreads;
+
+    // pick the replica and thread id for read in a round-robin fashion
+    int global_preferred_read_thread_id  = global_thread_id % (FLAGS_numServerThreads * config.n);
+    int local_preferred_read_thread_id = global_preferred_read_thread_id / config.n;
 
     if (FLAGS_closestReplica == -1) {
         //localReplica =  (global_thread_id / nsthreads) % nReplicas;
-        localReplica = replica_dis(replica_gen);
+        // localReplica = replica_dis(replica_gen);
+        localReplica = global_preferred_read_thread_id % config.n;
     } else {
         localReplica = FLAGS_closestReplica;
     }
@@ -72,12 +81,12 @@ void* client_thread_func(int thread_id, transport::Configuration config) {
     //fprintf(stderr, "global_thread_id = %d; localReplica = %d\n", global_thread_id, localReplica);
     if (FLAGS_mode == "mtapir") {
         client = new multitapirstore::Client(config,
-                                            FLAGS_ip,
-                                            FLAGS_physPort,
+                                            transport,
                                             FLAGS_numServerThreads,
                                             FLAGS_numShards,
                                             localReplica,
-                                            preferred_core_id,
+                                            local_preferred_read_thread_id,
+                                            preferred_thread_id,
                                             twopc, replicated,
                                             TrueTime(FLAGS_skew, FLAGS_error),
                                             FLAGS_replScheme);
@@ -194,11 +203,33 @@ void* client_thread_func(int thread_id, transport::Configuration config) {
     fprintf(fp, "# Overall_Latency: %lf\n", tLatency/tCount);
     fprintf(fp, "# Get: %d, %lf\n", getCount, getLatency/getCount);
     fprintf(fp, "# Commit: %d, %lf\n", commitCount, commitLatency/commitCount);
-
     fclose(fp);
-
-    return NULL;
 }
+
+void* client_thread_func(int thread_id, transport::Configuration config) {
+    // create the transport
+    FastTransport *transport = new FastTransport(config,
+                                                FLAGS_ip,
+                                                FLAGS_numServerThreads,
+                                                0,
+                                                FLAGS_physPort,
+                                                0,
+                                                thread_id);
+
+    // create the client fibers
+    boost::fibers::fiber client_fibers[FLAGS_numClientFibers];
+
+    for (int i = 0; i < FLAGS_numClientFibers; i++) {
+        boost::fibers::fiber f(client_fiber_func, thread_id * FLAGS_numClientFibers + i, config, transport);
+        client_fibers[i] = std::move(f);
+    }
+
+    for (int i = 0; i < FLAGS_numClientFibers; i++) {
+        client_fibers[i].join();
+    }
+    return NULL;
+};
+
 
 void segfault_sigaction(int signal, siginfo_t *si, void *arg)
 {
@@ -206,9 +237,7 @@ void segfault_sigaction(int signal, siginfo_t *si, void *arg)
     exit(0);
 }
 
-int
-main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     struct sigaction sa;
@@ -229,7 +258,8 @@ main(int argc, char **argv)
     ifstream in;
     in.open(FLAGS_keysFile);
     if (!in) {
-        fprintf(stderr, "Could not read keys from: %s\n", FLAGS_keysFile.c_str());
+        fprintf(stderr, "Could not read keys from: %s\n",
+                FLAGS_keysFile.c_str());
         exit(0);
     }
     for (int i = 0; i < FLAGS_numKeys; i++) {
@@ -241,22 +271,19 @@ main(int argc, char **argv)
     // Load configuration
     std::ifstream configStream(FLAGS_configFile);
     if (configStream.fail()) {
-        fprintf(stderr, "unable to read configuration file: %s\n", FLAGS_configFile.c_str());
+        fprintf(stderr, "unable to read configuration file: %s\n",
+                FLAGS_configFile.c_str());
     }
     transport::Configuration config(configStream);
 
-    // Create client threads
-    std::vector<std::thread> thread_arr(FLAGS_numClientThreads);
+    // Create the transport threads; each transport thread will run
+    // FLAGS_numClientThreads client fibers
+    std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
-        // TODO: pass host id (given as incremental number times the
-        //       number of client processes we start on the host)
-        // Unique thread id
-        //*tid = nhost + ncpu * ncthreads + i;
-        thread_arr[i] = std::thread(client_thread_func, i, config);
-        erpc::bind_to_core(thread_arr[i], 0, i);
+        client_thread_arr[i] = std::thread(client_thread_func, i, config);
+        erpc::bind_to_core(client_thread_arr[i], 0, i);
     }
-
-    for (auto &thread : thread_arr) thread.join();
+    for (auto &thread : client_thread_arr) thread.join();
 
     return 0;
 }

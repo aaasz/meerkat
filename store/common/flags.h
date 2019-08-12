@@ -17,6 +17,7 @@ DEFINE_string(replScheme, "ir", "Replication scheme <ir|vr|lir>");
 
 DEFINE_string(logPath, "/mnt/log", "Path to the log files");
 DEFINE_uint32(numClientThreads, 1, "Number of client threads");
+DEFINE_uint32(numClientFibers, 1, "Number of fibers per client thread");
 DEFINE_uint64(secondsFromEpoch, 0, "Synchronization point (start clock) for all clients");
 DEFINE_uint32(duration, 10, "Number of seconds to run the experiment");
 DEFINE_uint32(warmup, 3, "Number of seconds to warmup the experiment");

@@ -51,11 +51,11 @@ class Client : public ::Client
 {
 public:
     Client(const transport::Configuration &config,
-        std::string &ip,
-        uint8_t phys_port,
+        Transport *transport,
         int nThreads,  int nShards,
         uint8_t closestReplica,
         uint8_t preferred_core_id,
+        uint8_t preferred_read_core_id,
         bool twopc, bool replicated,
         TrueTime timeserver = TrueTime(0,0),
         const string replScheme = "ir");
@@ -72,6 +72,9 @@ public:
     std::vector<int> Stats();
 
 private:
+    // Transport shared by multiple clients.
+    Transport *transport;
+
     // Unique ID for this client.
     uint64_t client_id;
 
@@ -79,7 +82,8 @@ private:
     uint64_t t_id;
 
     // Ongoing transaction's mapping to a core.
-    uint8_t core_id;
+    uint8_t preferred_thread_id;
+    uint8_t preferred_read_thread_id;
 
     // Number of cores/threads on the server.
     int nsthreads;
@@ -92,9 +96,6 @@ private:
 
     // List of participants in the ongoing transaction.
     std::set<int> participants;
-
-    // Transport used by IR and PB client proxies.
-    Transport *transport;
 
     std::thread transport_thread;
 

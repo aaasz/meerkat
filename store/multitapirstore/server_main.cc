@@ -37,6 +37,7 @@
 #include <iostream>
 #include <thread>
 #include <csignal>
+#include <numa.h>
 
 #include "store/common/flags.h"
 
@@ -48,10 +49,19 @@ static replication::ir::IRReplica *last_irReplica;
 static multitapirstore::ServerIR *global_server;
 
 void server_thread_func(multitapirstore::Server *server,
-      transport::Configuration config) {
+      transport::Configuration config,
+      uint8_t numa_node, uint8_t thread_id) {
     std::string local_uri = config.replica(FLAGS_replicaIndex).host;
-    FastTransport *transport = new FastTransport(config, local_uri, FLAGS_numServerThreads, 0);
-
+    // TODO: provide mapping function from thread_id to numa_node
+    // for now assume it's round robin
+    // TODO: get rid of the hardcoded number of request types
+    FastTransport *transport = new FastTransport(config,
+                                                local_uri,
+                                                FLAGS_numServerThreads,
+                                                4,
+                                                0,
+                                                numa_node,
+                                                thread_id);
     last_transport = transport;
 
     replication::ir::IRReplica *irReplica = new replication::ir::IRReplica(
@@ -146,10 +156,16 @@ main(int argc, char **argv)
     }
 
     // create replica threads
+    // bind round robin on the availlable numa nodes
+    if (numa_available() == -1) {
+        PPanic("NUMA library not available.");
+    }
+
+    int nn_ct = numa_max_node() + 1;
     std::vector<std::thread> thread_arr(FLAGS_numServerThreads);
     for (size_t i = 0; i < FLAGS_numServerThreads; i++) {
-        thread_arr[i] = std::thread(server_thread_func, server, config);
-        erpc::bind_to_core(thread_arr[i], 0, i);
+        thread_arr[i] = std::thread(server_thread_func, server, config, i%nn_ct, i);
+        erpc::bind_to_core(thread_arr[i], i%nn_ct, i/nn_ct);
     }
 
     for (auto &thread : thread_arr) thread.join();

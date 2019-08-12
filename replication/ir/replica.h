@@ -67,11 +67,11 @@ public:
 
     // Message handlers.
     void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) override;
-    void ReceiveResponse(uint8_t reqType, char *respBuf, bool &unblock) override {}; // TODO: for now, replicas
+    void ReceiveResponse(uint8_t reqType, char *respBuf) override {}; // TODO: for now, replicas
                                             // do not need to communicate
                                             // with eachother; they will need
                                             // to for synchronization
-
+    bool Blocked() override { return false; };
     // new handlers
     void HandleUnloggedRequest(char *reqBuf, char *respBuf, size_t &respLen);
     void HandleInconsistentRequest(char *reqBuf, char *respBuf, size_t &respLen);

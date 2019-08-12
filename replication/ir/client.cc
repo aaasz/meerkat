@@ -91,8 +91,10 @@ void IRClient::InvokeInconsistent(uint64_t txn_nr,
     reqBuf->txn_nr = txn_nr;
     reqBuf->client_id = clientid;
     reqBuf->commit = commit;
-
-    transport->SendRequestToAll(inconsistentReqType, core_id, sizeof(inconsistent_request_t), false);
+    transport->SendRequestToAll(this,
+                                inconsistentReqType,
+                                core_id,
+                                sizeof(inconsistent_request_t));
 }
 
 void
@@ -137,11 +139,12 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
     reqBuf->nr_writes = txn.getWriteSet().size();
 
     txn.serialize(reinterpret_cast<char *>(reqBuf + 1));
-
-    transport->SendRequestToAll(consensusReqType, core_id, sizeof(consensus_request_header_t) +
-                                                    reqBuf->nr_reads * sizeof(read_t) +
-                                                    reqBuf->nr_writes * sizeof(write_t), true);
-    // TODO: un-nest the calls to SendRequestAll;
+    blocked = true;
+    transport->SendRequestToAll(this,
+                                consensusReqType,
+                                core_id, sizeof(consensus_request_header_t) +
+                                    reqBuf->nr_reads * sizeof(read_t) +
+                                    reqBuf->nr_writes * sizeof(write_t));
 }
 
 void IRClient::InvokeUnlogged(uint64_t txn_nr,
@@ -172,7 +175,11 @@ void IRClient::InvokeUnlogged(uint64_t txn_nr,
     auto *reqBuf = reinterpret_cast<unlogged_request_t *>(transport->GetRequestBuf());
     reqBuf->req_nr = reqId;
     memcpy(reqBuf->key, request.c_str(), request.size());
-    transport->SendRequestToReplica(unloggedReqType, replicaIdx, core_id, sizeof(unlogged_request_t), true);
+    blocked = true;
+    transport->SendRequestToReplica(this,
+                                    unloggedReqType,
+                                    replicaIdx, core_id,
+                                    sizeof(unlogged_request_t));
 }
 
 void IRClient::ResendConsensusRequest(const uint64_t reqId) {
@@ -180,9 +187,12 @@ void IRClient::ResendConsensusRequest(const uint64_t reqId) {
     auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
     // reqBuf must already have all field filled in
         // TODO: send to all replicas
-    transport->SendRequestToReplica(consensusReqType, 0, 0, sizeof(consensus_request_header_t) +
-                                                    reqBuf->nr_reads * sizeof(read_t) +
-                                                    reqBuf->nr_writes * sizeof(write_t), true);
+    transport->SendRequestToReplica(this,
+                                    consensusReqType,
+                                    0, 0,
+                                    sizeof(consensus_request_header_t) +
+                                        reqBuf->nr_reads * sizeof(read_t) +
+                                        reqBuf->nr_writes * sizeof(write_t));
 }
 
 void IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
@@ -202,9 +212,7 @@ void IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
     const std::map<int, consensus_response_t> *quorum =
         req->consensusReplyQuorum.CheckForQuorum();
     if (quorum != nullptr) {
-        // TODO - find new way to unblock the call
-        bool unblock;
-        HandleSlowPathConsensus(reqId, *quorum, false, req, unblock);
+        HandleSlowPathConsensus(reqId, *quorum, false, req);
     }
 }
 
@@ -212,8 +220,7 @@ void IRClient::HandleSlowPathConsensus(
             const uint64_t req_nr,
             const std::map<int, consensus_response_t> &msgs,
             const bool finalized_result_found,
-            PendingConsensusRequest *req,
-            bool &unblock) {
+            PendingConsensusRequest *req) {
     ASSERT(finalized_result_found || msgs.size() >= req->quorumSize);
 
     // If a finalized result wasn't found, call decide to determine the
@@ -254,15 +261,16 @@ void IRClient::HandleSlowPathConsensus(
 
     req->sent_confirms = true;
     req->timer->Start();
-    transport->SendRequestToAll(finalizeConsensusReqType, req->core_id, sizeof(finalize_consensus_request_t), true);
-    unblock = true;
+    transport->SendRequestToAll(this,
+                                finalizeConsensusReqType,
+                                req->core_id,
+                                sizeof(finalize_consensus_request_t));
 }
 
 void IRClient::HandleFastPathConsensus(
             const uint64_t req_nr,
             const std::map<int, consensus_response_t> &msgs,
-            PendingConsensusRequest *req,
-            bool &unblock) {
+            PendingConsensusRequest *req) {
     ASSERT(msgs.size() >= req->superQuorumSize);
     Debug("Handling fast path for request %lu.", req_nr);
 
@@ -294,7 +302,7 @@ void IRClient::HandleFastPathConsensus(
         if (!req->continuationInvoked) {
             req->consensus_continuation(req->decidedStatus);
             req->continuationInvoked = true;
-            unblock = true;
+            blocked = false;
         }
         delete req;
         return;
@@ -308,7 +316,7 @@ void IRClient::HandleFastPathConsensus(
     if (req->transition_to_slow_path_timer) {
         req->transition_to_slow_path_timer.reset();
     }
-    HandleSlowPathConsensus(req_nr, msgs, false, req, unblock);
+    HandleSlowPathConsensus(req_nr, msgs, false, req);
 }
 
 void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isConsensus) {
@@ -326,34 +334,36 @@ void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isCons
         // TODO: the reqBuf should already have the necessary information
         // (of the last request)
         req->timer->Reset();
-        transport->SendRequestToAll(finalizeConsensusReqType, req->core_id, sizeof(finalize_consensus_request_t), true);
+        transport->SendRequestToAll(this,
+                                    finalizeConsensusReqType,
+                                    req->core_id, sizeof(finalize_consensus_request_t));
     } else {
     	// aaasz: We don't need this anymore -- we only finalize consensus operations
 	    Panic("Not implemented!");
     }
 }
 
-// TOOD: for now, just the GETs go through this
-void IRClient::ReceiveResponse(uint8_t reqType, char *respBuf, bool &unblock) {
+void IRClient::ReceiveResponse(uint8_t reqType, char *respBuf) {
+    Debug("[%lu] received response", clientid);
     switch(reqType){
         case unloggedReqType:
-            HandleUnloggedReply(respBuf, unblock);
+            HandleUnloggedReply(respBuf);
             break;
         case inconsistentReqType:
-            HandleInconsistentReply(respBuf, unblock);
+            HandleInconsistentReply(respBuf);
             break;
         case consensusReqType:
-            HandleConsensusReply(respBuf, unblock);
+            HandleConsensusReply(respBuf);
             break;
         case finalizeConsensusReqType:
-            HandleFinalizeConsensusReply(respBuf, unblock);
+            HandleFinalizeConsensusReply(respBuf);
             break;
         default:
             Warning("Unrecognized request type: %d\n", reqType);
     }
 }
 
-void IRClient::HandleUnloggedReply(char *respBuf, bool &unblock) {
+void IRClient::HandleUnloggedReply(char *respBuf) {
     auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
     auto it = pendingReqs.find(resp->req_nr);
     if (it == pendingReqs.end()) {
@@ -361,24 +371,25 @@ void IRClient::HandleUnloggedReply(char *respBuf, bool &unblock) {
         return;
     }
     PendingUnloggedRequest *req = (PendingUnloggedRequest *)it->second;
+
+    Debug("[%lu] Received unlogged reply", clientid);
+
     // delete timer event
     req->timer->Stop();
     // remove from pending list
     pendingReqs.erase(it);
     // invoke application callback
     req->get_continuation(respBuf);
+    blocked = false;
     delete req;
-    unblock = true;
 }
 
-void IRClient::HandleInconsistentReply(char *respBuf, bool &unblock) {
-    // just check if we need to unblock
+void IRClient::HandleInconsistentReply(char *respBuf) {
     // auto *resp = reinterpret_cast<inconsistent_response_t *>(respBuf);
     // if (lastReqId == resp->req_nr)
-    //     unblock = true;
 }
 
-void IRClient::HandleConsensusReply(char *respBuf, bool &unblock) {
+void IRClient::HandleConsensusReply(char *respBuf) {
     auto *resp = reinterpret_cast<consensus_response_t *>(respBuf);
 
     Debug(
@@ -425,15 +436,15 @@ void IRClient::HandleConsensusReply(char *respBuf, bool &unblock) {
         req->decidedStatus = resp->status;
         req->reply_consensus_view = resp->view;
         // TODO: what if finalize in a different view?
-        HandleSlowPathConsensus(resp->req_nr, msgs, true, req, unblock);
+        HandleSlowPathConsensus(resp->req_nr, msgs, true, req);
     } else if (req->on_slow_path && msgs.size() >= req->quorumSize) {
-        HandleSlowPathConsensus(resp->req_nr, msgs, false, req, unblock);
+        HandleSlowPathConsensus(resp->req_nr, msgs, false, req);
     } else if (!req->on_slow_path && msgs.size() >= req->superQuorumSize) {
-        HandleFastPathConsensus(resp->req_nr, msgs, req, unblock);
+        HandleFastPathConsensus(resp->req_nr, msgs, req);
     }
 }
 
-void IRClient::HandleFinalizeConsensusReply(char *respBuf, bool &unblock) {
+void IRClient::HandleFinalizeConsensusReply(char *respBuf) {
     auto *resp = reinterpret_cast<finalize_consensus_response_t *>(respBuf);
     auto it = pendingReqs.find(resp->req_nr);
     if (it == pendingReqs.end()) {
@@ -479,8 +490,8 @@ void IRClient::HandleFinalizeConsensusReply(char *respBuf, bool &unblock) {
                 }
             }
         }
+        blocked = false;
         delete req;
-        unblock = true;
     }
 }
 

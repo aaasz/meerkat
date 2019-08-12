@@ -55,6 +55,9 @@ Parameters = namedtuple('Parameters', [
     'num_clients_per_machine',
     # The number of threads to run on every client.
     'num_threads_per_client',
+    # The number of fibers (micro threads) to run inside each client thread
+    # (to utilize the core more efficiently).
+    'num_fibers_per_client_thread',
     # The directory into which benchmark results are written. If the output
     # directory is foo/, then output is written to a directory foo/1247014124
     # where 1247014124 is a unique id for the benchmark.
@@ -99,14 +102,15 @@ def azure_servers():
 def zookeeper_clients():
     return {
         RemoteHost('10.100.1.2') : {'phys_port'  : 1}, # anteater
-        #RemoteHost('10.100.1.3') : {'phys_port'  : 0}, # bongo
+        RemoteHost('10.100.1.3') : {'phys_port'  : 0}, # bongo
         #RemoteHost('10.100.1.4') : {'phys_port'  : 1}, # capybara
-        #RemoteHost('10.100.1.7') : {'phys_port'  : 1}, # fossa
+        ###RemoteHost('10.100.1.7') : {'phys_port'  : 1}, # fossa
         #RemoteHost('10.100.1.13'): {'phys_port'  : 1}, # lemur
         #RemoteHost('10.100.1.14'): {'phys_port'  : 1}, # mongoose
         #RemoteHost('10.100.1.16'): {'phys_port'  : 1}, # okapi
         #RemoteHost('10.100.1.17'): {'phys_port'  : 1}, # platypus
-        #RemoteHost('10.100.1.20'): {'phys_port'  : 1}, # sloth
+        #RemoteHost('10.100.1.19') : {'phys_port'  : 0}, # rhinoceros
+        ##RemoteHost('10.100.1.20'): {'phys_port'  : 1}, # sloth
     }
 
 def zookeeper_servers():
@@ -377,6 +381,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
                 "--ncpu", str(client_i),
                 "--nhost", str(host_i),
                 "--numClientThreads", str(parameters.num_threads_per_client),
+                "--numClientFibers", str(parameters.num_fibers_per_client_thread),
                 "--secondsFromEpoch", str(seconds),
                 "--ip", str(client.hostname),
                 "--physPort", str(clients[client]['phys_port'])
@@ -506,6 +511,7 @@ def main(args):
         zipf_coefficient=0,
         num_client_machines=1,
         num_clients_per_machine=1,
+        num_fibers_per_client_thread=1,
         num_threads_per_client=1,
         suite_directory=args.suite_directory,
     )

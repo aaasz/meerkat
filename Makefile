@@ -10,8 +10,11 @@ LD = clang++
 EXPAND = lib/tmpl/expand
 
 ERPC_PATH= "/biggerraid/users/aaasz/eRPC"
-ERPC_CFLAGS := -I $(ERPC_PATH)/src -DRAW=true
-ERPC_LDFLAGS := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -libverbs
+ERPC_CFLAGS_RAW := -I $(ERPC_PATH)/src -DRAW=true
+ERPC_LDFLAGS_RAW := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -libverbs
+
+ERPC_CFLAGS_DPDK := -I $(ERPC_PATH)/src -I /usr/include/dpdk -DDPDK=true -march=native
+ERPC_LDFLAGS_DPDK := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -ldpdk
 
 CFLAGS_WARNINGS:= -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -Wno-uninitialized
 
@@ -21,11 +24,11 @@ CFLAGS_WARNINGS:= -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro
 # [1]: http://www.brendangregg.com/perf.html#FlameGraphs
 CFLAGS := -g -Wall $(CFLAGS_WARNINGS) -iquote.obj/gen -O2 -DNASSERT -fno-omit-frame-pointer
 CXXFLAGS := -g -std=c++0x
-LDFLAGS := -levent_pthreads -pthread
+LDFLAGS := -levent_pthreads -pthread -lboost_fiber -lboost_context
 
 ## Add ERPC flags ##
-CFLAGS += $(ERPC_CFLAGS)
-LDFLAGS += $(ERPC_LDFLAGS)
+CFLAGS += $(ERPC_CFLAGS_RAW)
+LDFLAGS += $(ERPC_LDFLAGS_RAW)
 
 ## Debian package: check ##
 #CHECK_CFLAGS := $(shell pkg-config --cflags check)

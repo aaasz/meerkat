@@ -76,7 +76,7 @@ struct req_tag_t {
     erpc::MsgBuffer req_msgbuf;
     erpc::MsgBuffer resp_msgbuf;
     uint8_t reqType;
-    //uint8_t sessionIdx;
+    TransportReceiver *src;
 };
 
 // A basic mempool for preallocated objects of type T. eRPC has a faster,
@@ -113,20 +113,12 @@ template <class T> class AppMemPool {
 class AppContext {
     public:
         struct {
-            std::vector<int> session_num_vec;
-            // TODO: seems like it's not safe to share a msg buffer among more requests -> don't know
-            // when eRPC stops urequiring it
-            // erpc::MsgBuffer req_msgbuf;
-
-            // TODO: seems like it might not be safe to share the response message
-            // erpc::MsgBuffer resp_msgbuf;
-
             // This is maintained between calls to GetReqBuf and SendRequest
             // to reduce copying
             req_tag_t *crt_req_tag;
             // Request tags used for RPCs exchanged with the servers
-            // TODO: get rid of this and put info in the packet itself?
             AppMemPool<req_tag_t> req_tag_pool;
+            boost::unordered_map<TransportReceiver *, boost::unordered_map<std::pair<uint8_t, uint8_t>, int>> sessions;
         } client;
 
         struct {
@@ -135,13 +127,11 @@ class AppContext {
             std::vector<long> latency_get;
             std::vector<long> latency_prepare;
             std::vector<long> latency_commit;
+            TransportReceiver *receiver = nullptr;
         } server;
 
         // common to both servers and clients
-        bool unblock; // used by the application to unblock the latest request
-        TransportReceiver *receiver = nullptr;
         erpc::Rpc<erpc::CTransport> *rpc = nullptr;
-        boost::unordered_map<std::pair<uint8_t, uint8_t>, int> sessions;
 };
 
 class FastTransport : public Transport
@@ -150,7 +140,10 @@ public:
     FastTransport(const transport::Configuration &config,
                   std::string &ip,
                   int nthreads,
-                  uint8_t phy_port);
+                  uint8_t nr_req_types,
+                  uint8_t phy_port,
+                  uint8_t numa_node,
+                  uint8_t id);
     virtual ~FastTransport();
     void Register(TransportReceiver *receiver,
                   int replicaIdx) override;
@@ -161,9 +154,8 @@ public:
     bool CancelTimer(int id) override;
     void CancelAllTimers() override;
 
-    bool SendRequestToReplica(uint8_t reqType, uint8_t replicaIdx, uint8_t coreIdx, size_t msgLen, bool blocking) override;
-    // TODO: implement this
-    bool SendRequestToAll(uint8_t reqType, uint8_t coreIdx, size_t msgLen, bool blocking) override;
+    bool SendRequestToReplica(TransportReceiver *src, uint8_t reqType, uint8_t replicaIdx, uint8_t threadIdx, size_t msgLen) override;
+    bool SendRequestToAll(TransportReceiver *src, uint8_t reqType, uint8_t threadIdx, size_t msgLen) override;
     bool SendResponse(size_t msgLen) override;
 
     char *GetRequestBuf() override;
@@ -176,6 +168,12 @@ private:
 
     // Number of server threads
     int nthreads;
+
+    // numa node on which this transport thread is running
+    uint8_t numa_node;
+
+    // used as the RPC id, must be unique per transport thread
+    uint8_t id;
 
     // Index of the replica server
     int replicaIdx;
@@ -194,12 +192,12 @@ private:
     bool stop = false;
 
     // TODO: find some other method to deal with timeouts (hidden in eRPC?)
-    std::atomic<int> lastTimerId;
+    uint64_t lastTimerId;
     using timers_map = std::map<int, FastTransportTimerInfo *>;
     timers_map timers;
     std::mutex timers_lock;
 
-    int GetSession(uint8_t replicaIdx, uint8_t coreIdx);
+    int GetSession(TransportReceiver *src, uint8_t replicaIdx, uint8_t coreIdx);
     bool SendMessageInternal(TransportReceiver *src, int replicaIdx, const Message &m);
     void OnTimer(FastTransportTimerInfo *info);
     static void SocketCallback(evutil_socket_t fd, short what, void *arg);

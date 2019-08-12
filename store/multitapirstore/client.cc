@@ -46,14 +46,16 @@ using namespace std;
 // }
 
 Client::Client(const transport::Configuration &config,
-               std::string &ip,
-               uint8_t phys_port,
-               int nsthreads, int nShards,
-               uint8_t closestReplica,
-               uint8_t preferred_core_id,
-               bool twopc, bool replicated, TrueTime timeServer,
-               const string replScheme)
-    : t_id(0), core_id(preferred_core_id), nsthreads(nsthreads), nshards(nShards), replicated(replicated), twopc(twopc),
+                Transport *transport,
+                int nsthreads, int nShards,
+                uint8_t closestReplica,
+                uint8_t preferred_thread_id,
+                uint8_t preferred_read_thread_id,
+                bool twopc, bool replicated, TrueTime timeServer,
+                const string replScheme)
+    : transport(transport), t_id(0), preferred_thread_id(preferred_thread_id),
+      preferred_read_thread_id(preferred_read_thread_id),
+      nsthreads(nsthreads), nshards(nShards), replicated(replicated), twopc(twopc),
       timeServer(timeServer), replScheme(replScheme), core_dis(0, nsthreads -1)
 {
     // Initialize all state here;
@@ -72,57 +74,32 @@ Client::Client(const transport::Configuration &config,
 
     bclient.reserve(nshards);
 
-    Debug("Initializing Tapir client with id [%lu] %lu", client_id, nshards);
+    Warning("Initializing Tapir client with id [%lu]; preferred_thread = %d,"
+          "read_replica = %d, preferred_read_thread = %d",
+          client_id, preferred_thread_id,
+          closestReplica, preferred_read_thread_id);
 
     /* Start a client for each shard. */
     // TODO: assume just one shard for now!
-
     shard_clients.reserve(nshards);
     bclient.reserve(nshards);
     // for (uint64_t i = 0; i < nshards; i++) {
     //     string shardConfigPath = configPath + to_string(i) + ".config";
     if (replScheme == "ir") {
-        transport = new FastTransport(config, ip, nsthreads, phys_port);
         shard_clients.push_back(std::unique_ptr<TxnClient>(
           new ShardClientIR(config, transport, client_id, 0,
                                  closestReplica, replicated)));
-// //        } else if (replScheme == "lir") {
-// //        	transport = new UDPSTransport(nsthreads, 0.0, 0.0);
-// //            shard_clients.push_back(std::unique_ptr<TxnClient>(
-// //              new ShardClientLIR(shardConfigPath, transport, client_id, i,
-// //                                closestReplica, replicated)));
-//         } else if (replScheme == "vr") {
-//             transport = new UDPTransport(nsthreads, 0.0, 0.0);
-//             shard_clients.push_back(std::unique_ptr<TxnClient>(
-//               new ShardClientVR(shardConfigPath, transport, client_id, i,
-//                                 closestReplica, replicated)));
     } else
         NOT_REACHABLE();
 
     bclient.push_back(std::unique_ptr<BufferClient>(new BufferClient(shard_clients[0].get())));
 
     Debug("Tapir client [%lu] created! %lu %lu", client_id, nshards, bclient.size());
-
-    /* Run the transport */
-    // this operation will not be blocking, as we started a blocking transport
-    ((FastTransport *)transport)->Run();
-
-    // transport_thread = std::thread(client_thread_func, replScheme, transport);
 }
 
 Client::~Client()
 {
-    // if (replScheme == "ir" || replScheme == "lir") {
-    //     UDPSTransport *t = (UDPSTransport *)transport;
-    //     t->Stop();
-    // } else if (replScheme == "ir") {
-    //     UDPTransport *t = (UDPTransport *)transport;
-    //     t->Stop();
-	// } else
-    //     NOT_REACHABLE();
-
     bclient.clear();
-//    transport->Wait();
 }
 
 /* Begins a transaction. All subsequent operations before a commit() or
@@ -150,7 +127,7 @@ Client::Get(const string &key, string &value)
     // If needed, add this shard to set of participants and send BEGIN.
     if (participants.find(i) == participants.end()) {
         participants.insert(i);
-        bclient[i]->Begin(t_id, core_id);
+        bclient[i]->Begin(t_id, preferred_thread_id, preferred_read_thread_id);
     }
 
     // Send the GET operation to appropriate shard.
@@ -181,7 +158,7 @@ Client::Put(const string &key, const string &value)
     // If needed, add this shard to set of participants and send BEGIN.
     if (participants.find(i) == participants.end()) {
         participants.insert(i);
-        bclient[i]->Begin(t_id, core_id);
+        bclient[i]->Begin(t_id, preferred_thread_id, preferred_read_thread_id);
     }
 
     Promise promise(PUT_TIMEOUT);

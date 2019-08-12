@@ -33,7 +33,7 @@
 #define _IR_CLIENT_H_
 
 #include "replication/common/quorumset.h"
-#include "lib/transport.h"
+#include "lib/fasttransport.h"
 #include "lib/configuration.h"
 #include "store/common/transaction.h"
 
@@ -105,8 +105,9 @@ public:
         decide_t decide,
         consensus_continuation_t continuation,
         error_continuation_t error_continuation = nullptr);
-    void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) override {};
-    void ReceiveResponse(uint8_t reqType, char *respBuf, bool &unblock) override;
+    void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) override { PPanic("Not implemented."); };
+    void ReceiveResponse(uint8_t reqType, char *respBuf) override;
+    bool Blocked() override { return blocked; };
 protected:
     struct PendingRequest {
         string request;
@@ -213,6 +214,7 @@ protected:
     std::unordered_map<uint64_t, PendingRequest *> pendingReqs;
     Transport *transport;
     uint64_t clientid;
+    bool blocked;
 
     // `TransitionToConsensusSlowPath` is called after a timeout to end the
     // possibility of taking the fast path and transition into taking the slow
@@ -235,8 +237,7 @@ protected:
         const uint64_t reqid,
         const std::map<int, consensus_response_t> &msgs,
         const bool finalized_result_found,
-        PendingConsensusRequest *req,
-        bool &unblock);
+        PendingConsensusRequest *req);
 
     // HandleFastPathConsensus is called when we're on the fast path and
     // receive a super quorum of responses from the same view.
@@ -249,8 +250,7 @@ protected:
     void HandleFastPathConsensus(
         const uint64_t reqid,
         const std::map<int, consensus_response_t> &msgs,
-        PendingConsensusRequest *req,
-        bool &unblock);
+        PendingConsensusRequest *req);
 
     void ResendConsensusRequest(const uint64_t reqId);
     void ResendFinalizeConsensusRequest(const uint64_t reqId, bool isConsensus);
@@ -258,10 +258,10 @@ protected:
     void UnloggedRequestTimeoutCallback(const uint64_t reqId);
 
     // new handlers
-    void HandleInconsistentReply(char *respBuf, bool &unblock);
-    void HandleUnloggedReply(char *respBuf, bool &unblock);
-    void HandleConsensusReply(char *respBuf, bool &unblock);
-    void HandleFinalizeConsensusReply(char *respBuf, bool &unblock);
+    void HandleInconsistentReply(char *respBuf);
+    void HandleUnloggedReply(char *respBuf);
+    void HandleConsensusReply(char *respBuf);
+    void HandleFinalizeConsensusReply(char *respBuf);
 };
 
 } // namespace replication::ir

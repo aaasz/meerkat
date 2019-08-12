@@ -41,12 +41,13 @@ BufferClient::~BufferClient() { }
 
 /* Begins a transaction. */
 void
-BufferClient::Begin(uint64_t tid, uint8_t core_id)
+BufferClient::Begin(uint64_t tid, uint8_t core_id, uint8_t preferred_read_core_id)
 {
     // Initialize data structures.
     txn = Transaction();
     this->tid = tid;
     this->core_id = core_id;
+    this->preferred_read_core_id = preferred_read_core_id;
     txnclient->Begin(tid);
 }
 
@@ -75,7 +76,7 @@ BufferClient::Get(const string &key, Promise *promise)
     Promise p(GET_TIMEOUT);
     Promise *pp = (promise != NULL) ? promise : &p;
 
-    txnclient->Get(tid, core_id, key, pp);
+    txnclient->Get(tid, preferred_read_core_id, key, pp);
     if (pp->GetReply() == REPLY_OK) {
         Debug("Adding [%s] with ts %lu", key.c_str(), pp->GetTimestamp().getTimestamp());
         txn.addReadSet(key, pp->GetTimestamp());

@@ -48,7 +48,8 @@ public:
 
     virtual ~TransportReceiver();
     virtual void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) = 0;
-    virtual void ReceiveResponse(uint8_t reqType, char *respBuf, bool &unblock) = 0;
+    virtual void ReceiveResponse(uint8_t reqType, char *respBuf) = 0;
+    virtual bool Blocked() = 0;
 };
 
 typedef std::function<void (void)> timer_callback_t;
@@ -62,8 +63,8 @@ public:
     virtual void Register(TransportReceiver *receiver,
                           int replicaIdx) = 0;
     virtual bool SendResponse(size_t msgLen) = 0;
-    virtual bool SendRequestToReplica(uint8_t reqType, uint8_t replicaIdx, uint8_t coreIdx, size_t msgLen, bool blocking) = 0;
-    virtual bool SendRequestToAll(uint8_t reqType, uint8_t coreIdx, size_t msgLen, bool blocking) = 0;
+    virtual bool SendRequestToReplica(TransportReceiver *src, uint8_t reqType, uint8_t replicaIdx, uint8_t coreIdx, size_t msgLen) = 0;
+    virtual bool SendRequestToAll(TransportReceiver *src, uint8_t reqType, uint8_t coreIdx, size_t msgLen) = 0;
     virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
     virtual bool CancelTimer(int id) = 0;
     virtual void CancelAllTimers() = 0;

@@ -131,10 +131,10 @@ Message_DebugEnabled(const char *fname)
 
 // Request types; TODO: make more general and add replication
 // headers with union of structs
-static constexpr uint8_t unloggedReqType = 2;
-static constexpr uint8_t consensusReqType = 3;
-static constexpr uint8_t finalizeConsensusReqType = 4; //slow path prepare
-static constexpr uint8_t inconsistentReqType = 5;
+static constexpr uint8_t unloggedReqType = 1;
+static constexpr uint8_t consensusReqType = 2;
+static constexpr uint8_t finalizeConsensusReqType = 3; //slow path prepare
+static constexpr uint8_t inconsistentReqType = 4;
 
 struct unlogged_request_t {
         uint64_t req_nr;
