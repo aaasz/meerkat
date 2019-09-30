@@ -101,17 +101,29 @@ def azure_servers():
 # listed by ibv_devinfo.
 def zookeeper_clients():
     return {
-        RemoteHost('10.100.1.2') : {'phys_port'  : 1}, # anteater
-        RemoteHost('10.100.1.3') : {'phys_port'  : 0}, # bongo
-        #RemoteHost('10.100.1.4') : {'phys_port'  : 1}, # capybara
-        ###RemoteHost('10.100.1.7') : {'phys_port'  : 1}, # fossa
-        #RemoteHost('10.100.1.13'): {'phys_port'  : 1}, # lemur
-        #RemoteHost('10.100.1.14'): {'phys_port'  : 1}, # mongoose
-        #RemoteHost('10.100.1.16'): {'phys_port'  : 1}, # okapi
-        #RemoteHost('10.100.1.17'): {'phys_port'  : 1}, # platypus
-        #RemoteHost('10.100.1.19') : {'phys_port'  : 0}, # rhinoceros
-        ##RemoteHost('10.100.1.20'): {'phys_port'  : 1}, # sloth
+        RemoteHost('10.100.5.3') : {'phys_port'  : 1}, # anteater-1g
+        RemoteHost('10.100.3.49') : {'phys_port'  : 0}, # bongo-1g
+        RemoteHost('10.100.5.7') : {'phys_port'  : 1}, # capybara-1g
+        RemoteHost('10.100.5.13') : {'phys_port'  : 0}, # ibex-1g
+        RemoteHost('10.100.5.146'): {'phys_port'  : 1}, # lemur-1g
+        RemoteHost('10.100.5.144'): {'phys_port'  : 1}, # mongoose-1g
+        RemoteHost('10.100.5.15'): {'phys_port'  : 1}, # okapi-1g
+        RemoteHost('10.100.5.138'): {'phys_port'  : 1}, # platypus-1g
+        RemoteHost('10.100.5.23') : {'phys_port'  : 0}, # rhinoceros-1g
+        RemoteHost('10.100.5.25') : {'phys_port'  : 0}, # sloth-1g
     }
+    #return {
+    #    RemoteHost('10.100.1.2') : {'phys_port'  : 1}, # anteater
+    #    RemoteHost('10.100.1.3') : {'phys_port'  : 0}, # bongo
+    #    RemoteHost('10.100.1.4') : {'phys_port'  : 1}, # capybara
+    #    ###RemoteHost('10.100.1.7') : {'phys_port'  : 1}, # fossa
+    #    RemoteHost('10.100.1.13'): {'phys_port'  : 1}, # lemur
+    #    RemoteHost('10.100.1.14'): {'phys_port'  : 1}, # mongoose
+    #    RemoteHost('10.100.1.16'): {'phys_port'  : 1}, # okapi
+    #    RemoteHost('10.100.1.17'): {'phys_port'  : 1}, # platypus
+    #    RemoteHost('10.100.1.19') : {'phys_port'  : 0}, # rhinoceros
+    #    ##RemoteHost('10.100.1.20'): {'phys_port'  : 1}, # sloth
+    #}
 
 def zookeeper_servers():
     return {
@@ -285,8 +297,12 @@ def run_benchmark(bench_dir, clients, servers, parameters):
     server_tasks = []
     # command to enable core dump on the server in case of SIGSEGV
     core_dump_cmd = [
-        "ulimit -c unlimited; ",
+        "ulimit -c unlimited;",
         "sudo sysctl -w kernel.core_pattern=/tmp/core-%e.%p.%h.%t; ",
+    ]
+    # command to increase the number of fds we can open
+    max_open_files_cmd = [
+        "ulimit -n 16384;",
     ]
     # command to free buff/cache
     drop_caches_cmd = [
@@ -312,8 +328,16 @@ def run_benchmark(bench_dir, clients, servers, parameters):
             #"LD_PRELOAD=libhugetlbfs.so HUGETLB_MORECORE=yes",
             #"perf c2c record -F 10000 -a -g -o /tmp/perf.data --delay 60000 -- ",
             #"perf record --cpu 0 -g -o /tmp/perf.data -- ",
-            #"perf stat -B -e cache-references,cache-misses,page-faults,context-switches,instructions --delay 150000",
+            #"perf stat -B --delay 40000 -I 20000 -e cache-references,cache-misses,l2_rqsts.miss,l2_rqsts.references,cycles,instructions",
+            #"perf stat -B --delay 220000 -I 20000 -e cycles,instructions",
             #"mutrace",
+            #"perf", "record",
+            #    "-o", "/mnt/log/server_{}_perf.data".format(replica_index),
+            #    "-C0",
+            #    "-e l2_rqsts.miss",
+            #    "-c 10000",
+            #    "-g",
+            #    "--",
             parameters.server_binary,
             "--configFile", os.path.join(
                 parameters.config_file_directory,
@@ -338,18 +362,19 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
         # Record (and print) the command we run, so that we can re-run it later
         # while we debug.
-        print('Running {} on {}.'.format(' '.join(core_dump_cmd + cmd), server.hostname))
+        print('Running {} on {}.'.format(' '.join(core_dump_cmd + max_open_files_cmd + cmd), server.hostname))
         bench_dir.write_string(
             'server_{}_cmd.txt'.format(server.hostname),
             ' '.join(cmd) + '\n')
 
-        server_tasks.append(server.run(drop_caches_cmd + core_dump_cmd + cmd))
+        server_tasks.append(server.run(drop_caches_cmd + core_dump_cmd + max_open_files_cmd + cmd))
     parallel_server_tasks = Parallel(server_tasks, aggregate=True)
     parallel_server_tasks.start()
 
     # Wait for the servers to start.
     print(boxed('Waiting for servers to start.'))
-    time.sleep(10 + 3 * parameters.num_server_threads)
+    time.sleep(10 + 2 * parameters.num_server_threads)
+    #time.sleep(170)
     bench_dir.write_string('servers_started_time.txt', str(datetime.datetime.now()))
 
     # Start the clients and wait for them to finish.
@@ -359,8 +384,10 @@ def run_benchmark(bench_dir, clients, servers, parameters):
     for host_i, client in enumerate(list(clients.keys()[:parameters.num_client_machines])):
         for client_i in range(parameters.num_clients_per_machine):
             cmd = [
+                "ulimit -n 8192;" , # increase how many fds we can open
                 "sudo",
-                #"ulimit -n 4096;" , # increase how many fds we can open
+                #"valgrind --leak-check=yes",
+                #"perf stat -B --delay 40000 -I 20000 -e cycles,instructions",
                 #"DEBUG=all",
                 parameters.client_binary,
                 "--configFile", os.path.join(
@@ -451,6 +478,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
     # Kill the servers.
     print(boxed('Killing servers.'))
+    #time.sleep(50)
     # We can't use PyREM's stop function because we need sudo priviledges
     #parallel_server_tasks.stop()
     kill_tasks = []

@@ -21,8 +21,8 @@ def main(args):
         repl_scheme=None,
         server_binary=args.server_binary,
         client_binary=args.client_binary,
-        benchmark_duration_seconds=40,
-        benchmark_warmup_seconds=15,
+        benchmark_duration_seconds=80,
+        benchmark_warmup_seconds=35,
         transaction_length=1,
         write_percentage=0,
         zipf_coefficient=None,
@@ -51,7 +51,18 @@ def main(args):
            num_client_machines,
            num_threads_per_client,
            num_fibers_per_client_thread) in [
-                                       (2, 2 * 1000 * 1000, 1, 4, 5),
+                                       (4, 4 * 500000, 1, 6, 8),
+                                       (8, 8 * 500000, 2, 6, 8),
+                                       (16, 16 * 500000, 4, 6, 8),
+                                       #(32, 32 * 500000, 8, 6, 8),
+                                       #(64, 64 * 500000, 8, 12, 8),
+                                       #(68, 68 * 500000, 10, 11, 8),
+                                       #(72, 72 * 500000, 10, 11, 8),
+                                       #(76, 76 * 500000, 10, 12, 8),
+                                       #(78, 78 * 500000, 10, 12, 8),
+                                       #(78, 78 * 500000, 10, 12, 8),
+                                       #(80, 80 * 500000, 8, 12, 8),
+                                       #(80, 80 * 500000, 10, 12, 8),
                                        ]
 
       for zipf_coefficient in [0]

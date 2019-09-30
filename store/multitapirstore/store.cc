@@ -36,10 +36,16 @@ namespace multitapirstore {
 
 using namespace std;
 
+// thread_local volatile int waste_cpu = 0;
+
 int
 Store::Get(const string &key, pair<Timestamp,string> &value)
 {
     Debug("GET %s", key.c_str());
+
+    // for (int i = 0; i < 1000; i++) { waste_cpu++; }
+    // return REPLY_OK;
+
     if (store->Get(key, &value)) {
 //    store->GetWithLock(key, &value);
         Debug("Value: \"%s\" at <%lu, %lu>",
@@ -132,6 +138,8 @@ Store::Prepare(txnid_t txn_id, const Transaction &txn, const Timestamp &timestam
     Debug("[%lu - %lu] START PREPARE", txn_id.first, txn_id.second);
     // TODO: For now assume we do not support inserts
     Debug("PREPARE at %lu", timestamp.getTimestamp());
+
+    // fake_counter[10]++;
 
     // initialize data structures for a new preparing transaction
     auto preparingTransaction = new PreparingTransaction();

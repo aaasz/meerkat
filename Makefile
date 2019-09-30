@@ -9,7 +9,9 @@ CXX = clang++
 LD = clang++
 EXPAND = lib/tmpl/expand
 
-ERPC_PATH= "/biggerraid/users/aaasz/eRPC"
+ERPC_PATH= "./third_party/eRPC"
+#ERPC_PATH= "/biggerraid/users/aaasz/eRPC"
+
 ERPC_CFLAGS_RAW := -I $(ERPC_PATH)/src -DRAW=true
 ERPC_LDFLAGS_RAW := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -libverbs
 
@@ -24,7 +26,7 @@ CFLAGS_WARNINGS:= -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro
 # [1]: http://www.brendangregg.com/perf.html#FlameGraphs
 CFLAGS := -g -Wall $(CFLAGS_WARNINGS) -iquote.obj/gen -O2 -DNASSERT -fno-omit-frame-pointer
 CXXFLAGS := -g -std=c++0x
-LDFLAGS := -levent_pthreads -pthread -lboost_fiber -lboost_context
+LDFLAGS := -levent_pthreads -pthread -lboost_fiber -lboost_context -lboost_system -lboost_thread
 
 ## Add ERPC flags ##
 CFLAGS += $(ERPC_CFLAGS_RAW)

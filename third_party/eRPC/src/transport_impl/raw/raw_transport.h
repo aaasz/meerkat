@@ -32,7 +32,7 @@ class RawTransport : public Transport {
   static constexpr size_t kMTU = 1024;
 
   // Multi-packet RQ constants
-  static constexpr size_t kLogNumStrides = 9;
+  static constexpr size_t kLogNumStrides = 6;
   static constexpr size_t kLogStrideBytes = 10;
   static constexpr size_t kStridesPerWQE = (1ull << kLogNumStrides);
   static constexpr size_t kCQESnapshotCycle = 65536 * kStridesPerWQE;

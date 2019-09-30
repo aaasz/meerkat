@@ -42,6 +42,8 @@
 #include <memory>
 #include <set>
 #include <unordered_map>
+#include <boost/functional/hash.hpp>
+#include <boost/unordered_map.hpp>
 
 namespace replication {
 namespace ir {
@@ -116,19 +118,21 @@ protected:
         uint8_t core_id;
         continuation_t continuation;
         bool continuationInvoked = false;
-        std::unique_ptr<Timeout> timer;
+        //std::unique_ptr<Timeout> timer;
         QuorumSet<viewstamp_t, finalize_consensus_response_t> confirmQuorum;
 
+        inline PendingRequest() {};
         inline PendingRequest(string request, uint64_t clientReqId,
                               uint64_t clienttxn_nr, uint8_t core_id,
                               continuation_t continuation,
-                              std::unique_ptr<Timeout> timer, int quorumSize)
+                              //std::unique_ptr<Timeout> timer,
+                              int quorumSize)
             : request(request),
               clientReqId(clientReqId),
               clienttxn_nr(clienttxn_nr),
               core_id(core_id),
               continuation(continuation),
-              timer(std::move(timer)),
+              //timer(std::move(timer)),
               confirmQuorum(quorumSize){};
         virtual ~PendingRequest(){};
     };
@@ -137,14 +141,16 @@ protected:
         error_continuation_t error_continuation;
         unlogged_continuation_t get_continuation;
 
+        inline PendingUnloggedRequest() {};
         inline PendingUnloggedRequest(
             string request, uint64_t clientReqId, uint64_t clienttxn_nr,
             uint8_t core_id,
             unlogged_continuation_t get_continuation,
-            error_continuation_t error_continuation,
-            std::unique_ptr<Timeout> timer)
+            error_continuation_t error_continuation)
+            //std::unique_ptr<Timeout> timer)
             : PendingRequest(request, clientReqId, clienttxn_nr, core_id, nullptr,
-                             std::move(timer), 1),
+                            //std::move(timer),
+                            1),
               error_continuation(error_continuation),
               get_continuation(get_continuation){};
     };
@@ -159,7 +165,8 @@ protected:
                                           std::unique_ptr<Timeout> timer,
                                           int quorumSize)
             : PendingRequest("", clientReqId, clienttxn_nr, core_id, nullptr,
-                             std::move(timer), quorumSize),
+                             //std::move(timer),
+                             quorumSize),
               inconsistent_continuation(inconsistent_continuation),
               inconsistentReplyQuorum(quorumSize){};
     };
@@ -169,15 +176,15 @@ protected:
         decide_t decide;
         //string decideResult;
         int decidedStatus;
-        const std::size_t quorumSize;
-        const std::size_t superQuorumSize;
+        std::size_t quorumSize = 0;
+        std::size_t superQuorumSize = 0;
         bool on_slow_path;
         error_continuation_t error_continuation;
         consensus_continuation_t consensus_continuation;
 
         // The timer to give up on the fast path and transition to the slow
         // path. After this timer is run for the first time, it is nulled.
-        std::unique_ptr<Timeout> transition_to_slow_path_timer;
+        //std::unique_ptr<Timeout> transition_to_slow_path_timer;
 
         // The view for which a majority result (or finalized result) was
         // found. The view of a majority of confirms must match this view.
@@ -188,30 +195,34 @@ protected:
         // phase.
         bool sent_confirms = false;
 
+        inline PendingConsensusRequest() {};
         inline PendingConsensusRequest(
             uint64_t clientReqId, uint64_t clienttxn_nr,
             uint8_t core_id,
             consensus_continuation_t consensus_continuation,
-            std::unique_ptr<Timeout> timer,
-            std::unique_ptr<Timeout> transition_to_slow_path_timer,
+            //std::unique_ptr<Timeout> timer,
+            //std::unique_ptr<Timeout> transition_to_slow_path_timer,
             int quorumSize, int superQuorum, decide_t decide,
             error_continuation_t error_continuation)
             : PendingRequest("", clientReqId, clienttxn_nr, core_id, nullptr,
-                             std::move(timer), quorumSize),
+                            //std::move(timer),
+                            quorumSize),
               consensusReplyQuorum(quorumSize),
               decide(decide),
               quorumSize(quorumSize),
               superQuorumSize(superQuorum),
               on_slow_path(false),
               error_continuation(error_continuation),
-              consensus_continuation(consensus_continuation),
-              transition_to_slow_path_timer(
-                  std::move(transition_to_slow_path_timer)){};
+              consensus_continuation(consensus_continuation){};
+              //transition_to_slow_path_timer(
+              //    std::move(transition_to_slow_path_timer)){};
     };
 
     transport::Configuration config;
     uint64_t lastReqId;
     std::unordered_map<uint64_t, PendingRequest *> pendingReqs;
+    boost::unordered_map<uint64_t, PendingUnloggedRequest> pendingUnloggedReqs;
+    boost::unordered_map<uint64_t, PendingConsensusRequest> pendingConsensusReqs;
     Transport *transport;
     uint64_t clientid;
     bool blocked;

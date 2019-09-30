@@ -162,6 +162,7 @@ ServerIR::Load(const string &key, const string &value, const Timestamp timestamp
 
 void
 ServerIR::PrintStats() {
+    // fprintf(stderr, "%lu\n", store->fake_counter[10].load());
 #if  MULTITAPIRSTORE_MEASURE__TIMES
     // Discard first third of collected results
 

@@ -178,6 +178,9 @@ private:
     // Index of the replica server
     int replicaIdx;
 
+    // Nexus object
+    erpc::Nexus *nexus;
+
     struct FastTransportTimerInfo
     {
         FastTransport *transport;

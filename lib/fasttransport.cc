@@ -60,8 +60,10 @@ using std::pair;
 
 #define FASTTRANSPORT_MEASURE_TIMES false
 
-std::vector<erpc::Nexus *> nexus;
 static std::mutex fasttransport_lock;
+
+//static uint64_t counters[16];
+
 static volatile bool fasttransport_initialized = false;
 
 // Function called when we received a response to a
@@ -157,28 +159,45 @@ FastTransport::FastTransport(const transport::Configuration &config,
 
         // Setup eRPC
 
-        // create one nexus per numa node
-        for (uint8_t i = 0; i <= numa_max_node(); i++) {
-            std::string local_uri = ip + ":" + std::to_string(erpc::kBaseSmUdpPort + i);
-            erpc::Nexus *n = new erpc::Nexus(local_uri, i, 0);
-            for (uint8_t j = 1; j <= nr_req_types; j++) {
-                n->register_req_func(j, fasttransport_request, erpc::ReqFuncType::kForeground);
-            }
-            nexus.push_back(n);
-            Debug("Creating nexus objects with local_uri = %s", local_uri.c_str());
-        }
+        // // TODO: why sharing one nexus object between threads does not scale?
+        // // TODO: create one nexus per numa node
+        // // right now we create one nexus object per
+        // for (uint8_t i = 0; i <= numa_max_node(); i++) {
+        //     std::string local_uri = ip + ":" + std::to_string(erpc::kBaseSmUdpPort + i);
+        //     //erpc::Nexus *n = new erpc::Nexus(local_uri, i, 0);
+        //     erpc::Nexus *n = new erpc::Nexus(local_uri, 0, 0);
+        //     for (uint8_t j = 1; j <= nr_req_types; j++) {
+        //         n->register_req_func(j, fasttransport_request, erpc::ReqFuncType::kForeground);
+        //     }
+        //     nexus.push_back(n);
+        //     Debug("Creating nexus objects with local_uri = %s", local_uri.c_str());
+        // }
         fasttransport_initialized = true;
     }
 
+    // Setup eRPC
+
+    // TODO: why sharing one nexus object between threads does not scale?
+    // TODO: create one nexus per numa node
+    // right now we create one nexus object per thread
+    std::string local_uri = ip + ":" + std::to_string(erpc::kBaseSmUdpPort + id);
+    nexus = new erpc::Nexus(local_uri, numa_node, 0);
+    Warning("Created nexus object with local_uri = %s", local_uri.c_str());
+
+    // register receive handlers
+    for (uint8_t j = 1; j <= nr_req_types; j++) {
+        nexus->register_req_func(j, fasttransport_request, erpc::ReqFuncType::kForeground);
+    }
+
     // Create the RPC object
-    //erpc::Rpc<erpc::CTransport> *rpc = new erpc::Rpc<erpc::CTransport> (nexus[numa_node],
-    c->rpc = new erpc::Rpc<erpc::CTransport> (nexus[numa_node],
+    //c->rpc = new erpc::Rpc<erpc::CTransport> (nexus[numa_node],
+    c->rpc = new erpc::Rpc<erpc::CTransport> (nexus,
                                             static_cast<void *>(c),
                                             static_cast<uint8_t>(id),
                                             basic_sm_handler, phy_port);
     c->rpc->retry_connect_on_invalid_rpc_id = true;
-
     fasttransport_lock.unlock();
+    //counters[id] = 0;
 }
 
 FastTransport::~FastTransport() {
@@ -208,14 +227,17 @@ inline int FastTransport::GetSession(TransportReceiver *src, uint8_t replicaIdx,
         // create a new session to the replica core
         // use the dafault port from eRPC for control path
         // TODO: pass in the number of numa nodes at the server (in the form of the mapping function)
-        int numa_nodes_at_servers = 2;
+        //int numa_nodes_at_servers = 2;
+        //int numa_nodes_at_servers = 1;
         int session_id = c->rpc->create_session(config.replica(replicaIdx).host + ":" +
-                                       std::to_string(erpc::kBaseSmUdpPort + threadIdx % numa_nodes_at_servers), threadIdx);
+                                       //std::to_string(erpc::kBaseSmUdpPort + threadIdx % numa_nodes_at_servers), threadIdx);
+                                       std::to_string(erpc::kBaseSmUdpPort + threadIdx), threadIdx);
         while (!c->rpc->is_connected(session_id)) {
             c->rpc->run_event_loop_once();
         }
+        // sleep to even more aggressively regulate the udp connections
         c->client.sessions[src][session_key] = session_id;
-        Debug("Opened eRPC session to %s", (config.replica(replicaIdx).host + ":" + std::to_string(erpc::kBaseSmUdpPort)).c_str());
+        Warning("Opened eRPC session to %s, RPC id: %d", (config.replica(replicaIdx).host + ":" + std::to_string(erpc::kBaseSmUdpPort)).c_str(), threadIdx);
         return session_id;
     } else {
         return iter->second;
@@ -294,15 +316,17 @@ bool FastTransport::SendResponse(size_t msgLen) {
     c->rpc->resize_msg_buffer(&resp, msgLen);
     c->rpc->enqueue_response(c->server.req_handle, &resp);
     Debug("Sent response, msgLen = %lu\n", msgLen);
+    //counters[id]++;
     return true;
 }
 
 void FastTransport::Run() {
-        while(!stop) {
-            // if (replicaIdx == -1)
-            //    event_base_loop(eventBase, EVLOOP_ONCE|EVLOOP_NONBLOCK);
-            c->rpc->run_event_loop_once();
-        }
+    //sleep(10);
+    while(!stop) {
+        // if (replicaIdx == -1)
+        //    event_base_loop(eventBase, EVLOOP_ONCE|EVLOOP_NONBLOCK);
+        c->rpc->run_event_loop_once();
+    }
 }
 
 int FastTransport::Timer(uint64_t ms, timer_callback_t cb) {
@@ -425,6 +449,11 @@ void FastTransport::SignalCallback(evutil_socket_t fd,
 
 void FastTransport::Stop() {
     Debug("Stopping transport!");
+
+    // for (uint8_t i = 0; i < 16; i++) {
+    //     fprintf(stderr, "counters[%d] = %lu\n", i, counters[i]);
+    // }
+
 #if FASTTRANSPORT_MEASURE_TIMES
     // Discard first third of collected results
 

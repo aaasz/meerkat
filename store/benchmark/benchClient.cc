@@ -47,8 +47,6 @@ void client_fiber_func(int thread_id,
     uint8_t preferred_thread_id;
     uint32_t localReplica = -1;
 
-    printf("In client func\n");
-
     core_gen = std::mt19937(rd());
     replica_gen = std::mt19937(rd());
     key_dis = std::uniform_int_distribution<uint32_t>(0, FLAGS_numKeys - 1);
@@ -85,8 +83,8 @@ void client_fiber_func(int thread_id,
                                             FLAGS_numServerThreads,
                                             FLAGS_numShards,
                                             localReplica,
-                                            local_preferred_read_thread_id,
                                             preferred_thread_id,
+                                            local_preferred_read_thread_id,
                                             twopc, replicated,
                                             TrueTime(FLAGS_skew, FLAGS_error),
                                             FLAGS_replScheme);
@@ -189,7 +187,6 @@ void client_fiber_func(int thread_id,
                 tLatency += latency;
             }
         }
-
         gettimeofday(&t1, NULL);
         if ( ((t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec)) > FLAGS_duration*1000000)
             break;
@@ -281,6 +278,7 @@ int main(int argc, char **argv) {
     std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
         client_thread_arr[i] = std::thread(client_thread_func, i, config);
+        // uint8_t idx = i/2 + (i % 2) * 12;
         erpc::bind_to_core(client_thread_arr[i], 0, i);
     }
     for (auto &thread : client_thread_arr) thread.join();

@@ -75,7 +75,7 @@ class Store : public TxnStore
     };
 public:
     Store(bool twopc, bool replicated, ThreadSafeKvs *store)
-        : twopc(twopc), replicated(replicated), store(store) {}
+        : twopc(twopc), replicated(replicated), store(store) {} //{fake_counter[10].store(0);}
 
     // Overriding from TxnStore
     void Begin(txnid_t txn_id);
@@ -87,6 +87,7 @@ public:
     void Abort(txnid_t txn_id, const Transaction &txn = Transaction());
     void Load(const std::string &key, const std::string &value, const Timestamp &timestamp);
 
+    // volatile std::atomic<uint64_t> fake_counter[20];
 private:
 
     // Is our data sharded?

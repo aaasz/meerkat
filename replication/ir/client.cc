@@ -106,28 +106,30 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
                           consensus_continuation_t continuation,
                           error_continuation_t error_continuation) {
     uint64_t reqId = ++lastReqId;
-    auto timer = std::unique_ptr<Timeout>(new Timeout(
-        transport, 500, [this, reqId]() { ResendConsensusRequest(reqId); }));
-    auto transition_to_slow_path_timer =
-        std::unique_ptr<Timeout>(new Timeout(transport, 500, [this, reqId]() {
-            // TODO: new way to deal with this
-            //TransitionToConsensusSlowPath(reqId);
-        }));
+    //auto timer = std::unique_ptr<Timeout>(new Timeout(
+    //    transport, 500, [this, reqId]() { ResendConsensusRequest(reqId); }));
+    //auto transition_to_slow_path_timer =
+    //    std::unique_ptr<Timeout>(new Timeout(transport, 500, [this, reqId]() {
+    //        // TODO: new way to deal with this
+    //        //TransitionToConsensusSlowPath(reqId);
+    //    }));
 
-    PendingConsensusRequest *req =
-      new PendingConsensusRequest(reqId,
+    PendingConsensusRequest req =
+        PendingConsensusRequest(reqId,
                                   txn_nr,
                                   core_id,
                                   continuation,
-                                  std::move(timer),
-                                  std::move(transition_to_slow_path_timer),
+                                  //nullptr,
+                                  //nullptr,
+                                  //std::move(timer),
+                                  //std::move(transition_to_slow_path_timer),
                                   config.QuorumSize(),
                                   config.FastQuorumSize(),
                                   decide,
                                   error_continuation);
-    pendingReqs[reqId] = req;
+    pendingConsensusReqs[reqId] = req;
     // TODO: how do we deal with timeouts? (do we need to patch eRPC?)
-    req->transition_to_slow_path_timer->Start();
+    //req->transition_to_slow_path_timer->Start();
     //SendConsensus(req);
     auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
     reqBuf->req_nr = reqId;
@@ -155,23 +157,24 @@ void IRClient::InvokeUnlogged(uint64_t txn_nr,
                          error_continuation_t error_continuation,
                          uint32_t timeout) {
     uint64_t reqId = ++lastReqId;
-    auto timer = std::unique_ptr<Timeout>(new Timeout(
-        transport, timeout,
-        [this, reqId]() { UnloggedRequestTimeoutCallback(reqId); }));
+    //auto timer = std::unique_ptr<Timeout>(new Timeout(
+    //    transport, timeout,
+    //    [this, reqId]() { UnloggedRequestTimeoutCallback(reqId); }));
 
-    PendingUnloggedRequest *req =
-      new PendingUnloggedRequest(request,
+    PendingUnloggedRequest req =
+        PendingUnloggedRequest(request,
                                  reqId,
                                  txn_nr,
                                  core_id,
                                  continuation,
-                                 error_continuation,
-                                 std::move(timer));
+                                 error_continuation);
+                                 //nullptr,
+                                 //std::move(timer));
 
     // TODO: find a way to get sending errors (the eRPC's enqueue_request
     // function does not return errors)
     // TODO: deal with timeouts?
-    pendingReqs[reqId] = req;
+    pendingUnloggedReqs[reqId] = req;
     auto *reqBuf = reinterpret_cast<unlogged_request_t *>(transport->GetRequestBuf());
     reqBuf->req_nr = reqId;
     memcpy(reqBuf->key, request.c_str(), request.size());
@@ -195,26 +198,26 @@ void IRClient::ResendConsensusRequest(const uint64_t reqId) {
                                         reqBuf->nr_writes * sizeof(write_t));
 }
 
-void IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
-    Warning("Client timeout; taking consensus slow path: reqId=%lu", reqId);
-    PendingConsensusRequest *req =
-        dynamic_cast<PendingConsensusRequest *>(pendingReqs[reqId]);
-    ASSERT(req != NULL);
-    req->on_slow_path = true;
+// void IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
+//     Warning("Client timeout; taking consensus slow path: reqId=%lu", reqId);
+//     PendingConsensusRequest *req =
+//         dynamic_cast<PendingConsensusRequest *>(pendingReqs[reqId]);
+//     ASSERT(req != NULL);
+//     req->on_slow_path = true;
 
-    // We've already transitioned into the slow path, so don't transition into
-    // the slow-path again.
-    ASSERT(req->transition_to_slow_path_timer);
-    req->transition_to_slow_path_timer.reset();
+//     // We've already transitioned into the slow path, so don't transition into
+//     // the slow-path again.
+//     //ASSERT(req->transition_to_slow_path_timer);
+//     //req->transition_to_slow_path_timer.reset();
 
-    // It's possible that we already have a quorum of responses (but not a
-    // super quorum).
-    const std::map<int, consensus_response_t> *quorum =
-        req->consensusReplyQuorum.CheckForQuorum();
-    if (quorum != nullptr) {
-        HandleSlowPathConsensus(reqId, *quorum, false, req);
-    }
-}
+//     // It's possible that we already have a quorum of responses (but not a
+//     // super quorum).
+//     const std::map<int, consensus_response_t> *quorum =
+//         req->consensusReplyQuorum.CheckForQuorum();
+//     if (quorum != nullptr) {
+//         HandleSlowPathConsensus(reqId, *quorum, false, req);
+//     }
+// }
 
 void IRClient::HandleSlowPathConsensus(
             const uint64_t req_nr,
@@ -247,10 +250,10 @@ void IRClient::HandleSlowPathConsensus(
     }
 
     // Set up a new timer for the finalize phase.
-    req->timer = std::unique_ptr<Timeout>(
-        new Timeout(transport, 500, [this, req_nr]() {  //
-            ResendFinalizeConsensusRequest(req_nr, true);
-        }));
+    //req->timer = std::unique_ptr<Timeout>(
+    //    new Timeout(transport, 500, [this, req_nr]() {  //
+    //        ResendFinalizeConsensusRequest(req_nr, true);
+    //    }));
 
     // Send finalize message.
     auto *reqBuf = reinterpret_cast<finalize_consensus_request_t *>(transport->GetRequestBuf());
@@ -260,7 +263,7 @@ void IRClient::HandleSlowPathConsensus(
     reqBuf->txn_nr = req->clienttxn_nr;
 
     req->sent_confirms = true;
-    req->timer->Start();
+    //req->timer->Start();
     transport->SendRequestToAll(this,
                                 finalizeConsensusReqType,
                                 req->core_id,
@@ -293,7 +296,7 @@ void IRClient::HandleFastPathConsensus(
         req->decidedStatus = result.first;
 
         // Stop the transition to slow path timer
-        req->transition_to_slow_path_timer->Stop();
+        //req->transition_to_slow_path_timer->Stop();
 
         // aaasz: we don't need to send finalize consensus on fast path anymore;
         // the client will immediately send the inconsistent request to commit/abort
@@ -304,7 +307,7 @@ void IRClient::HandleFastPathConsensus(
             req->continuationInvoked = true;
             blocked = false;
         }
-        delete req;
+        pendingConsensusReqs.erase(req_nr);
         return;
     }
 
@@ -313,9 +316,9 @@ void IRClient::HandleFastPathConsensus(
     Debug("A super quorum of matching requests was NOT found for request %lu.",
           req_nr);
     req->on_slow_path = true;
-    if (req->transition_to_slow_path_timer) {
-        req->transition_to_slow_path_timer.reset();
-    }
+    //if (req->transition_to_slow_path_timer) {
+    //    req->transition_to_slow_path_timer.reset();
+    //}
     HandleSlowPathConsensus(req_nr, msgs, false, req);
 }
 
@@ -333,7 +336,7 @@ void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isCons
 
         // TODO: the reqBuf should already have the necessary information
         // (of the last request)
-        req->timer->Reset();
+        //req->timer->Reset();
         transport->SendRequestToAll(this,
                                     finalizeConsensusReqType,
                                     req->core_id, sizeof(finalize_consensus_request_t));
@@ -365,23 +368,24 @@ void IRClient::ReceiveResponse(uint8_t reqType, char *respBuf) {
 
 void IRClient::HandleUnloggedReply(char *respBuf) {
     auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
-    auto it = pendingReqs.find(resp->req_nr);
-    if (it == pendingReqs.end()) {
+    auto it = pendingUnloggedReqs.find(resp->req_nr);
+    if (it == pendingUnloggedReqs.end()) {
         Warning("Received unlogged reply when no request was pending; req_nr = %lu", resp->req_nr);
         return;
     }
-    PendingUnloggedRequest *req = (PendingUnloggedRequest *)it->second;
+    PendingUnloggedRequest req = (PendingUnloggedRequest)it->second;
 
     Debug("[%lu] Received unlogged reply", clientid);
 
     // delete timer event
-    req->timer->Stop();
+    //req->timer->Stop();
     // remove from pending list
-    pendingReqs.erase(it);
+    //pendingReqs.erase(it);
+    pendingUnloggedReqs.erase(resp->req_nr);
     // invoke application callback
-    req->get_continuation(respBuf);
+    req.get_continuation(respBuf);
     blocked = false;
-    delete req;
+    //delete req;
 }
 
 void IRClient::HandleInconsistentReply(char *respBuf) {
@@ -397,8 +401,8 @@ void IRClient::HandleConsensusReply(char *respBuf) {
         "request %lu.",
         resp->replicaid, resp->view, resp->req_nr);
 
-    auto it = pendingReqs.find(resp->req_nr);
-    if (it == pendingReqs.end()) {
+    auto it = pendingConsensusReqs.find(resp->req_nr);
+    if (it == pendingConsensusReqs.end()) {
         Warning(
             "Client was not expecting a ReplyConsensusMessage for request %lu, "
             "so it is ignoring the request.",
@@ -406,9 +410,8 @@ void IRClient::HandleConsensusReply(char *respBuf) {
         return;
     }
 
-    PendingConsensusRequest *req =
-        dynamic_cast<PendingConsensusRequest *>(it->second);
-    ASSERT(req != nullptr);
+    PendingConsensusRequest* req = &it->second;
+    //ASSERT(req != nullptr);
 
     if (req->sent_confirms) {
         Debug(
@@ -424,14 +427,16 @@ void IRClient::HandleConsensusReply(char *respBuf) {
     const std::map<int, consensus_response_t> &msgs =
         req->consensusReplyQuorum.GetMessages(resp->view);
 
+    Debug("Nr replies so far = %lu; quorumset = %p.", msgs.size(), &req->consensusReplyQuorum);
+
     if (resp->finalized) {
         Debug("The HandleConsensusReply for request %lu was finalized.", resp->req_nr);
         // If we receive a finalized message, then we immediately transition
         // into the slow path.
         req->on_slow_path = true;
-        if (req->transition_to_slow_path_timer) {
-            req->transition_to_slow_path_timer.reset();
-        }
+        //if (req->transition_to_slow_path_timer) {
+        //    req->transition_to_slow_path_timer.reset();
+        //}
 
         req->decidedStatus = resp->status;
         req->reply_consensus_view = resp->view;
@@ -446,8 +451,8 @@ void IRClient::HandleConsensusReply(char *respBuf) {
 
 void IRClient::HandleFinalizeConsensusReply(char *respBuf) {
     auto *resp = reinterpret_cast<finalize_consensus_response_t *>(respBuf);
-    auto it = pendingReqs.find(resp->req_nr);
-    if (it == pendingReqs.end()) {
+    auto it = pendingConsensusReqs.find(resp->req_nr);
+    if (it == pendingConsensusReqs.end()) {
         Debug(
             "We received a FinalizeConsensusReply for operation %lu, but we weren't "
             "waiting for any FinalizeConsensusReply. We are ignoring the message.",
@@ -460,38 +465,29 @@ void IRClient::HandleFinalizeConsensusReply(char *respBuf) {
         "request %lu.",
         resp->replicaid, resp->view, resp->req_nr);
 
-    PendingRequest *req = it->second;
+    PendingConsensusRequest *req = &it->second;
 
     viewstamp_t vs = { resp->view, resp->req_nr };
     if (req->confirmQuorum.AddAndCheckForQuorum(vs, resp->replicaid, *resp)) {
-        req->timer->Stop();
-        pendingReqs.erase(it);
+        //req->timer->Stop();
         if (!req->continuationInvoked) {
-            // Return to the client. ConfirmMessages are sent by replicas in
-            // response to FinalizeInconsistentMessages and
-            // FinalizeConsensusMessage, but inconsistent operations are
-            // invoked before FinalizeInconsistentMessages are ever sent. Thus,
-            // req->continuationInvoked can only be false if req is a
-            // PendingConsensusRequest, so it's safe to cast it here.
-            PendingConsensusRequest *r2 =
-                dynamic_cast<PendingConsensusRequest *>(req);
-            ASSERT(r2 != nullptr);
-            if (vs.view == r2->reply_consensus_view) {
-                r2->consensus_continuation(r2->decidedStatus);
+            // Return to the client.
+            if (vs.view == req->reply_consensus_view) {
+                req->consensus_continuation(req->decidedStatus);
             } else {
                 Debug(
                     "We received a majority of ConfirmMessages for request %lu "
                     "with view %lu, but the view from ReplyConsensusMessages "
                     "was %lu.",
-                    resp->req_nr, vs.view, r2->reply_consensus_view);
-                if (r2->error_continuation) {
-                    r2->error_continuation(
-                        r2->request, ErrorCode::MISMATCHED_CONSENSUS_VIEWS);
+                    resp->req_nr, vs.view, req->reply_consensus_view);
+                if (req->error_continuation) {
+                    req->error_continuation(
+                        req->request, ErrorCode::MISMATCHED_CONSENSUS_VIEWS);
                 }
             }
         }
+        pendingConsensusReqs.erase(resp->req_nr);
         blocked = false;
-        delete req;
     }
 }
 
@@ -508,9 +504,9 @@ void IRClient::UnloggedRequestTimeoutCallback(const uint64_t req_nr) {
     Warning("Unlogged request timed out: %lu", req_nr);
 
     // delete timer event
-    req->timer->Stop();
+    //req->timer->Stop();
     // remove from pending list
-    pendingReqs.erase(it);
+    pendingUnloggedReqs.erase(req_nr);
     // invoke application callback
     if (req->error_continuation) {
         req->error_continuation(req->request, ErrorCode::TIMEOUT);

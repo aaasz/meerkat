@@ -42,6 +42,8 @@ template <class IDTYPE, class MSGTYPE>
 class QuorumSet
 {
 public:
+    QuorumSet() {}
+
     QuorumSet(int numRequired)
         : numRequired(numRequired)
     {

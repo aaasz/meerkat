@@ -41,6 +41,8 @@
 
 #include "store/common/flags.h"
 
+#include <boost/thread/thread.hpp>
+
 using namespace std;
 
 // TODO: better way to print stats
@@ -55,9 +57,11 @@ void server_thread_func(multitapirstore::Server *server,
     // TODO: provide mapping function from thread_id to numa_node
     // for now assume it's round robin
     // TODO: get rid of the hardcoded number of request types
+    int ht_ct = boost::thread::hardware_concurrency();
     FastTransport *transport = new FastTransport(config,
                                                 local_uri,
-                                                FLAGS_numServerThreads,
+                                                //FLAGS_numServerThreads,
+                                                ht_ct,
                                                 4,
                                                 0,
                                                 numa_node,
@@ -92,8 +96,8 @@ main(int argc, char **argv)
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     // TODO(mwhittaker): Make command line flags.
-    bool twopc = false;
-    bool replicated = true;
+    // bool twopc = false;
+    // bool replicated = true;
 
     if (FLAGS_configFile == "") {
         fprintf(stderr, "option --configFile is required\n");
@@ -161,11 +165,21 @@ main(int argc, char **argv)
         PPanic("NUMA library not available.");
     }
 
-    int nn_ct = numa_max_node() + 1;
-    std::vector<std::thread> thread_arr(FLAGS_numServerThreads);
-    for (size_t i = 0; i < FLAGS_numServerThreads; i++) {
-        thread_arr[i] = std::thread(server_thread_func, server, config, i%nn_ct, i);
-        erpc::bind_to_core(thread_arr[i], i%nn_ct, i/nn_ct);
+    //int nn_ct = numa_max_node() + 1;
+    //int ht_ct = boost::thread::hardware_concurrency()/boost::thread::physical_concurrency(); // number of hyperthreads
+
+    // start the app on all available cores to regulate frequency boosting
+    int ht_ct = boost::thread::hardware_concurrency();
+    //std::vector<std::thread> thread_arr(FLAGS_numServerThreads);
+    std::vector<std::thread> thread_arr(ht_ct);
+    //for (uint8_t i = 0; i < FLAGS_numServerThreads; i++) {
+    for (uint8_t i = 0; i < ht_ct; i++) {
+        // thread_arr[i] = std::thread(server_thread_func, server, config, i%nn_ct, i);
+        // erpc::bind_to_core(thread_arr[i], i%nn_ct, i/nn_ct);
+        uint8_t numa_node = (i % 4 < 2)?0:1;
+        uint8_t idx = i/4 + (i % 2) * 20;
+        thread_arr[i] = std::thread(server_thread_func, server, config, numa_node, i);
+        erpc::bind_to_core(thread_arr[i], numa_node, idx);
     }
 
     for (auto &thread : thread_arr) thread.join();
