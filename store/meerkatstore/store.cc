@@ -30,9 +30,9 @@
  *
  **********************************************************************/
 
-#include "store/multitapirstore/store.h"
+#include "store/meerkatstore/store.h"
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 using namespace std;
 
@@ -279,4 +279,4 @@ Store::Load(const string &key, const string &value, const Timestamp &timestamp)
     writers[key] = new DLinkedList<PreparingTransaction>();
 }
 
-} // namespace multitapirstore
+} // namespace meerkatstore

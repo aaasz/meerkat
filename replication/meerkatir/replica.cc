@@ -6,7 +6,7 @@
  *
  **********************************************************************/
 
-#include "replication/ir/replica.h"
+#include "replication/meerkatir/replica.h"
 
 #include <cstdint>
 
@@ -15,7 +15,7 @@
 #define IRREPLICA_MEASURE_APP_TIMES false
 
 namespace replication {
-namespace ir {
+namespace meerkatir {
 
 using namespace std;
 

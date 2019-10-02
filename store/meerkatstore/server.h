@@ -29,23 +29,23 @@
  *
  **********************************************************************/
 
-#ifndef _MULTITAPIR_SERVER_H_
-#define _MULTITAPIR_SERVER_H_
+#ifndef _MEERKATSTORE_SERVER_H_
+#define _MEERKATSTORE_SERVER_H_
 
 #include <memory>
 
-#include "replication/ir/replica.h"
+#include "replication/meerkatir/replica.h"
 #include "store/common/backend/atomic_kvs.h"
 #include "store/common/backend/pthread_kvs.h"
 #include "store/common/backend/thread_safe_kvs.h"
 #include "store/common/timestamp.h"
 #include "store/common/truetime.h"
-#include "store/multitapirstore/config.h"
-#include "store/multitapirstore/store.h"
+#include "store/meerkatstore/config.h"
+#include "store/meerkatstore/store.h"
 
-namespace multitapirstore {
+namespace meerkatstore {
 
-using RecordEntryIR = replication::ir::RecordEntry;
+using RecordEntryIR = replication::meerkatir::RecordEntry;
 //using RecordEntryLIR = replication::lir::RecordEntry;
 
 class Server {
@@ -55,7 +55,7 @@ public:
                       const Timestamp timestamp) = 0;
 };
 
-class ServerIR : public Server, public replication::ir::IRAppReplica
+class ServerIR : public Server, public replication::meerkatir::IRAppReplica
 {
 public:
     ServerIR()
@@ -93,6 +93,6 @@ private:
     std::unique_ptr<Store> store;
 };
 
-} // namespace multitapirstore
+} // namespace meerkatstore
 
-#endif /* _MULTITAPIR_SERVER_H_ */
+#endif /* _MEERKATSTORE_SERVER_H_ */

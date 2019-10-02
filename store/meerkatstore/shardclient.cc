@@ -29,11 +29,11 @@
  *
  **********************************************************************/
 
-#include "store/multitapirstore/shardclient.h"
+#include "store/meerkatstore/shardclient.h"
 
 #include <sys/time.h>
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 using namespace std;
 
@@ -46,7 +46,7 @@ ShardClientIR::ShardClientIR(const transport::Configuration &config,
                        shard, int closestReplica, bool replicated)
         : config(config), client_id(client_id), transport(transport),
           shard(shard), replicated(replicated) {
-    client = new replication::ir::IRClient(config, transport, client_id);
+    client = new replication::meerkatir::IRClient(config, transport, client_id);
 
     if (closestReplica == -1) {
         replica = client_id % config.n;
@@ -72,8 +72,8 @@ void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
                                      uint8_t core_id,
                                      Promise *promise,
                                      const std::string &request_str,
-                                     replication::ir::unlogged_continuation_t callback,
-                                     replication::ir::error_continuation_t error_callback) {
+                                     replication::meerkatir::unlogged_continuation_t callback,
+                                     replication::meerkatir::error_continuation_t error_callback) {
 
     Debug("Sending unlogged request to replica %d.", replica);
     const int timeout = (promise != nullptr) ? promise->GetTimeout() : 1000;
@@ -84,9 +84,9 @@ void ShardClientIR::SendUnreplicated(uint64_t txn_nr,
 
 void ShardClientIR::SendConsensus(uint64_t txn_nr, uint8_t core_id, Promise *promise,
                                   const Transaction &txn, const Timestamp &timestamp,
-                                  replication::ir::decide_t decide,
-                                  replication::ir::consensus_continuation_t callback,
-                                  replication::ir::error_continuation_t error_callback) {
+                                  replication::meerkatir::decide_t decide,
+                                  replication::meerkatir::consensus_continuation_t callback,
+                                  replication::meerkatir::error_continuation_t error_callback) {
 
     Debug("Sending consensus request ");
     waiting = promise;
@@ -96,8 +96,8 @@ void ShardClientIR::SendConsensus(uint64_t txn_nr, uint8_t core_id, Promise *pro
 
 void ShardClientIR::SendInconsistent(uint64_t txn_nr, uint8_t core_id,
                                      bool commit,
-                                     replication::ir::inconsistent_continuation_t callback,
-                                     replication::ir::error_continuation_t error_callback) {
+                                     replication::meerkatir::inconsistent_continuation_t callback,
+                                     replication::meerkatir::error_continuation_t error_callback) {
 
     client->InvokeInconsistent(txn_nr, core_id, commit,
                                callback, error_callback);
@@ -120,13 +120,13 @@ void ShardClientIR::Prepare(uint64_t txn_nr,
     Debug("[shard %i] Sending PREPARE [%lu]", shard, txn_nr);
 
     SendConsensus(txn_nr, core_id, promise, txn, timestamp,
-          bind(&ShardClientIR::MultiTapirDecide, this,
+          bind(&ShardClientIR::MeerkatDecide, this,
                placeholders::_1),
           bind(&ShardClientIR::PrepareCallback, this,
                placeholders::_1), nullptr);
 }
 
-int ShardClientIR::MultiTapirDecide(const std::map<int, std::size_t> &results) {
+int ShardClientIR::MeerkatDecide(const std::map<int, std::size_t> &results) {
     // TODO: re-introduce the retry?
 
     // If a majority say prepare_ok,
@@ -247,4 +247,4 @@ void ShardClientIR::CommitCallback(char *respBuf) {
     }
 }
 
-} // namespace multitapirstore
+} // namespace meerkatstore

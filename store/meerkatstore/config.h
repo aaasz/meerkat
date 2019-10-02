@@ -32,11 +32,11 @@
 #ifndef _MULTITAPIRSTORE_CONFIG_H_
 #define _MULTITAPIRSTORE_CONFIG_H_
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 #define TWOPC true
 #define REPLICATED true
 
-} // namespace multitapirstore
+} // namespace meerkatstore
 
 #endif /* _MULTITAPIRSTORE_CONFIG_H_ */

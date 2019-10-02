@@ -7,10 +7,10 @@
  *      Author: aaasz
  */
 
-#ifndef _MULTITAPIRSTORE_DLINKEDLIST_H_
-#define _MULTITAPIRSTORE_DLINKEDLIST_H_
+#ifndef _MEERKATSTORE_DLINKEDLIST_H_
+#define _MEERKATSTORE_DLINKEDLIST_H_
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 template<typename T>
 class DLinkedList
@@ -140,6 +140,6 @@ inline typename DLinkedList<T>::Node* DLinkedList<T>::find(T* key)
 }
 
 
-} // namespace multitapirstore
+} // namespace meerkatstore
 
-#endif /* _MULTITAPIRSTORE_DLINKEDLIST_H_ */
+#endif /* _MEERKATSTORE_DLINKEDLIST_H_ */

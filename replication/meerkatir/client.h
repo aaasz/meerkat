@@ -46,7 +46,7 @@
 #include <boost/unordered_map.hpp>
 
 namespace replication {
-namespace ir {
+namespace meerkatir {
 
 // A client's request may fail for various reasons. For example, if enough
 // replicas are down, a client's request may time out. An ErrorCode indicates

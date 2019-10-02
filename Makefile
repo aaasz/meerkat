@@ -145,9 +145,9 @@ $(foreach bin,$(1),$(eval LDFLAGS-$(bin) += $(2)))
 endef
 
 include lib/Rules.mk
-include replication/ir/Rules.mk
+include replication/meerkatir/Rules.mk
 include store/common/Rules.mk
-include store/multitapirstore/Rules.mk
+include store/meerkatstore/Rules.mk
 include store/benchmark/Rules.mk
 ##################################################################
 # General rules

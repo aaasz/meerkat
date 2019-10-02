@@ -29,14 +29,14 @@
  *
  **********************************************************************/
 
-#ifndef _MULTITAPIR_SHARDCLIENT_H_
-#define _MULTITAPIR_SHARDCLIENT_H_
+#ifndef _MEERKATSTORE_SHARDCLIENT_H_
+#define _MEERKATSTORE_SHARDCLIENT_H_
 
 #include "lib/assert.h"
 #include "lib/configuration.h"
 #include "lib/message.h"
 #include "lib/transport.h"
-#include "replication/ir/client.h"
+#include "replication/meerkatir/client.h"
 #include "store/common/timestamp.h"
 #include "store/common/transaction.h"
 #include "store/common/frontend/txnclient.h"
@@ -44,7 +44,7 @@
 #include <map>
 #include <string>
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 class ShardClientIR : public TxnClient
 {
@@ -87,7 +87,7 @@ private:
     int replica; // which replica to use for reads
     bool replicated; // Is the database replicated?
 
-    replication::ir::IRClient *client; // Client proxy.
+    replication::meerkatir::IRClient *client; // Client proxy.
     Promise *waiting; // waiting thread
     Promise *blockingBegin; // don't start a new transaction until current one
                             // until finished (limitation on transport --
@@ -97,24 +97,24 @@ private:
     void SendUnreplicated(uint64_t txn_nr,
                           uint8_t core_id,
                           Promise *promise, const std::string &request_str,
-                          replication::ir::unlogged_continuation_t callback,
-                          replication::ir::error_continuation_t error_callback);
+                          replication::meerkatir::unlogged_continuation_t callback,
+                          replication::meerkatir::error_continuation_t error_callback);
     void SendInconsistent(uint64_t txn_nr,
                           uint8_t core_id,
                           bool commit,
-                          replication::ir::inconsistent_continuation_t callback,
-                          replication::ir::error_continuation_t error_callback);
+                          replication::meerkatir::inconsistent_continuation_t callback,
+                          replication::meerkatir::error_continuation_t error_callback);
     void SendConsensus(uint64_t txn_nr,
                        uint8_t core_id,
                        Promise *promise,
                        const Transaction &txn,
                        const Timestamp &timestamp,
-                       replication::ir::decide_t decide,
-                       replication::ir::consensus_continuation_t callback,
-                       replication::ir::error_continuation_t error_callback);
+                       replication::meerkatir::decide_t decide,
+                       replication::meerkatir::consensus_continuation_t callback,
+                       replication::meerkatir::error_continuation_t error_callback);
 
-    /* Tapir's Decide Function. */
-    int MultiTapirDecide(const std::map<int, std::size_t> &results);
+    /* Meerkat's Decide Function. */
+    int MeerkatDecide(const std::map<int, std::size_t> &results);
 
     /* Timeout for Get requests, which only go to one replica. */
     void GetTimeout();
@@ -135,6 +135,6 @@ private:
     int SendGet(const std::string &request_str);
 };
 
-} // namespace multitapirstore
+} // namespace meerkatstore
 
-#endif /* _MULTITAPIR_SHARDCLIENT_H_ */
+#endif /* _MEERKATSTORE_SHARDCLIENT_H_ */

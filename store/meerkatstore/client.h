@@ -29,23 +29,23 @@
  *
  **********************************************************************/
  
-#ifndef _MULTITAPIR_CLIENT_H_
-#define _MULTITAPIR_CLIENT_H_
+#ifndef _MEERKATSTORE_CLIENT_H_
+#define _MEERKATSTORE_CLIENT_H_
 
 #include "lib/assert.h"
 #include "lib/message.h"
 #include "lib/configuration.h"
 #include "lib/fasttransport.h"
-#include "replication/ir/client.h"
+#include "replication/meerkatir/client.h"
 #include "store/common/timestamp.h"
 #include "store/common/truetime.h"
 #include "store/common/frontend/client.h"
 #include "store/common/frontend/bufferclient.h"
-#include "store/multitapirstore/shardclient.h"
+#include "store/meerkatstore/shardclient.h"
 
 #include <thread>
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 class Client : public ::Client
 {
@@ -123,6 +123,6 @@ private:
     int Prepare(Timestamp &timestamp);
 };
 
-} // namespace multitapirstore
+} // namespace meerkatstore
 
-#endif /* _MULTITAPIR_CLIENT_H_ */
+#endif /* _MEERKATSTORE_CLIENT_H_ */

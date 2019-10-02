@@ -22,7 +22,7 @@ Transaction::Transaction(uint8_t nr_reads, uint8_t nr_writes, char* buf) {
     }
 
     auto *write_ptr = reinterpret_cast<write_t *> (read_ptr);
-    for (int i = 0; i < nr_reads; i++) {
+    for (int i = 0; i < nr_writes; i++) {
         writeSet[std::string(write_ptr->key, 64)] = std::string(write_ptr->value, 64);
     }
 }

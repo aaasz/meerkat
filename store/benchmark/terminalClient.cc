@@ -11,7 +11,7 @@
 
 #include "store/common/frontend/client.h"
 #include "store/common/truetime.h"
-#include "store/multitapirstore/client.h"
+#include "store/meerkatstore/client.h"
 
 using namespace std;
 

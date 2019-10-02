@@ -32,7 +32,7 @@
 
 #include "lib/assert.h"
 #include "lib/message.h"
-#include "replication/ir/client.h"
+#include "replication/meerkatir/client.h"
 
 #include <sys/time.h>
 #include <math.h>
@@ -40,7 +40,7 @@
 #include <random>
 
 namespace replication {
-namespace ir {
+namespace meerkatir {
 
 using namespace std;
 

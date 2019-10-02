@@ -29,8 +29,8 @@
  *
  **********************************************************************/
 
-#ifndef _MULTITAPIR_STORE_H_
-#define _MULTITAPIR_STORE_H_
+#ifndef _MEERKAT_STORE_H_
+#define _MEERKAT_STORE_H_
 
 #include "lib/assert.h"
 #include "lib/message.h"
@@ -41,15 +41,15 @@
 #include "store/common/backend/atomic_kvs.h"
 #include "store/common/backend/pthread_kvs.h"
 #include "store/common/backend/versionstore.h"
-#include "store/multitapirstore/dlinkedlist.h"
-#include "replication/ir/replica.h"
+#include "store/meerkatstore/dlinkedlist.h"
+#include "replication/meerkatir/replica.h"
 
 #include <set>
 #include <unordered_map>
 #include <pthread.h>
 #include <mutex>
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 class Store : public TxnStore
 {
@@ -108,6 +108,6 @@ private:
     void clean_preparing_transaction(PreparingTransaction *p);
 };
 
-} // namespace tapirstore
+} // namespace meerkatstore
 
-#endif /* _MULTITAPIR_STORE_H_ */
+#endif /* _MEERKAT_STORE_H_ */

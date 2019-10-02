@@ -29,16 +29,17 @@
  *
  **********************************************************************/
 
-#include "store/multitapirstore/server.h"
-
 #include <pthread.h>
 #include <sched.h>
 #include <iostream>
 #include <thread>
 
+#include "store/meerkatstore/server.h"
+
+
 #define MULTITAPIRSTORE_MEASURE__TIMES false
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 using namespace std;
 
@@ -208,4 +209,4 @@ ServerIR::PrintStats() {
 #endif
 }
 
-} // namespace multitapirstore
+} // namespace meerkatrstore

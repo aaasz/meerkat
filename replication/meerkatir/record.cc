@@ -28,14 +28,14 @@
  *
  **********************************************************************/
 
-#include "replication/ir/record.h"
+#include "replication/meerkatir/record.h"
 
 #include <utility>
 
 #include "lib/assert.h"
 
 namespace replication {
-namespace ir {
+namespace meerkatir {
 
 RecordEntry &
 Record::Add(const RecordEntry& entry) {

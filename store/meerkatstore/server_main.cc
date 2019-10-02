@@ -29,8 +29,6 @@
  *
  **********************************************************************/
 
-#include "store/multitapirstore/server.h"
-
 #include <pthread.h>
 #include <sched.h>
 #include <cstdlib>
@@ -40,6 +38,7 @@
 #include <numa.h>
 
 #include "store/common/flags.h"
+#include "store/meerkatstore/server.h"
 
 #include <boost/thread/thread.hpp>
 
@@ -47,10 +46,10 @@ using namespace std;
 
 // TODO: better way to print stats
 static FastTransport *last_transport;
-static replication::ir::IRReplica *last_irReplica;
-static multitapirstore::ServerIR *global_server;
+static replication::meerkatir::IRReplica *last_irReplica;
+static meerkatstore::ServerIR *global_server;
 
-void server_thread_func(multitapirstore::Server *server,
+void server_thread_func(meerkatstore::Server *server,
       transport::Configuration config,
       uint8_t numa_node, uint8_t thread_id) {
     std::string local_uri = config.replica(FLAGS_replicaIndex).host;
@@ -68,13 +67,13 @@ void server_thread_func(multitapirstore::Server *server,
                                                 thread_id);
     last_transport = transport;
 
-    replication::ir::IRReplica *irReplica = new replication::ir::IRReplica(
+    replication::meerkatir::IRReplica *irReplica = new replication::meerkatir::IRReplica(
       config, FLAGS_replicaIndex,
       (FastTransport *)transport,
-      (multitapirstore::ServerIR *)server);
+      (meerkatstore::ServerIR *)server);
 
     last_irReplica = irReplica;
-    global_server = (multitapirstore::ServerIR *)server;
+    global_server = (meerkatstore::ServerIR *)server;
 
     transport->Run();
 }
@@ -126,10 +125,10 @@ main(int argc, char **argv)
                 "only %d replicas defined\n", FLAGS_replicaIndex, config.n);
     }
 
-    multitapirstore::Server *server;
+    meerkatstore::Server *server;
 
      if (FLAGS_replScheme == "ir") {
-         server = new multitapirstore::ServerIR();
+         server = new meerkatstore::ServerIR();
      } else
          NOT_REACHABLE();
 

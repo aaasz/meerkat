@@ -46,7 +46,7 @@
 #include <boost/unordered_map.hpp>
 
 namespace replication {
-namespace ir {
+namespace meerkatir {
 
 enum RecordEntryState {
     RECORD_STATE_TENTATIVE,

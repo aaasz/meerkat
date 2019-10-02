@@ -30,14 +30,14 @@
  *
  **********************************************************************/
 
-#include "store/multitapirstore/client.h"
+#include "store/meerkatstore/client.h"
 
 #include <random>
 #include <list>
 #include <limits.h>
 #include <thread>
 
-namespace multitapirstore {
+namespace meerkatstore {
 
 using namespace std;
 
@@ -289,4 +289,4 @@ Client::Stats()
     return v;
 }
 
-} // namespace multitapirstore
+} // namespace meerkatstore

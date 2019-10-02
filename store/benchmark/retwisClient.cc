@@ -1,18 +1,20 @@
 // -*- mode: c++; c-file-style: "k&r"; c-basic-offset: 4 -*-
 /***********************************************************************
  *
- * store/benchmark/retwisClient.cc:
- *   Retwis benchmarking client for a distributed transactional store.
+ * store/benchmark/benchClient.cc:
+ *   Benchmarking client for a distributed transactional store.
  *
  **********************************************************************/
 
 #include "store/common/truetime.h"
 #include "store/common/frontend/client.h"
-#include "store/multitapirstore/client.h"
+#include "store/meerkatstore/client.h"
+#include "store/common/flags.h"
+
+#include <boost/fiber/all.hpp>
 
 #include <signal.h>
 #include <random>
-#include <algorithm>
 
 using namespace std;
 
@@ -20,145 +22,103 @@ using namespace std;
 int rand_key();
 
 bool ready = false;
-double alpha = -1;
 double *zipf;
-
-// TODO: send this in as a parameter
-string logPath = "/mnt/log";
-
 vector<string> keys;
-uint32_t keysPerCore = 1000000;
-int nKeys = 100;
-const char *configPath = NULL;
-const char *keysPath = NULL;
-const char *replScheme = NULL;
-long int seconds_from_epoch = 0;
-int duration = 10;
-int warmup = duration/3;
-int nShards = 1, ipcthreads = 0, nsthreads = 1, ncthreads = 1;
-int tLen = 10;
-int wPer = 50; // Out of 100
-int closestReplica = -1; // Closest replica id.
-int nReplicas = 3; // Number of replicas TODO:get this from command line
-int skew = 0; // difference between real clock and TrueTime
-int error = 0; // error bars
-int ncpu = 0; // on which processor to pin this process and its threads
-int nhost = 0; // monotonic id of the host we are running on
-
 std::mt19937 key_gen;
 vector<std::uniform_int_distribution<uint32_t>> keys_distributions;
-std::uniform_int_distribution<uint32_t> key_dis;
+thread_local std::uniform_int_distribution<uint32_t> key_dis;
 
 
 // TODO(mwhittaker): Make command line flags.
 bool twopc = false;
 bool replicated = true;
 
-std::mutex mtx;
-
-enum {
-    MODE_UNKNOWN,
-    MODE_DRSILO,
-    MODE_MTAPIR
-} mode = MODE_UNKNOWN;
-
-thread_local Client* client;
-thread_local vector<string> results;
-
-void* run_client(void *arg) {
+void client_fiber_func(int thread_id,
+                transport::Configuration config,
+                FastTransport *transport) {
+    Client* client;
+    vector<string> results;
 
     std::mt19937 core_gen;
     std::mt19937 replica_gen;
-    std::uniform_int_distribution<uint32_t> core_dis(0, nsthreads - 1);
-    std::uniform_int_distribution<uint32_t> replica_dis(0, nReplicas - 1);
+    //std::uniform_int_distribution<uint32_t> core_dis(0, FLAGS_numServerThreads - 1);
+    //std::uniform_int_distribution<uint32_t> replica_dis(0, nReplicas - 1);
     std::random_device rd;
-    //uint32_t core_id;
-    uint32_t preffered_core_id;
+    uint8_t preferred_thread_id;
     uint32_t localReplica = -1;
-
-    vector<int> keyIdx;
-    int ret;
 
     core_gen = std::mt19937(rd());
     replica_gen = std::mt19937(rd());
-
-    int thread_id = *((int*) arg);
-    delete (int*)arg;
+    key_dis = std::uniform_int_distribution<uint32_t>(0, FLAGS_numKeys - 1);
 
     // Open file to dump results
-    FILE* fp = fopen((logPath + "/client." + std::to_string(nhost * 1000 + ncpu * ncthreads + thread_id) + ".log").c_str(), "w");
-    uint32_t global_thread_id = nhost * ncthreads + thread_id;
+    uint32_t global_client_id = FLAGS_nhost * 1000 + FLAGS_ncpu * FLAGS_numClientThreads + thread_id;
+    FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_client_id) + ".log").c_str(), "w");
+    uint32_t global_thread_id = FLAGS_nhost * FLAGS_numClientThreads + thread_id;
 
     // Trying to distribute as equally as possible the clients on the
     // replica cores.
 
-    //preffered_core_id = core_dis(core_gen);
-    preffered_core_id = global_thread_id % nsthreads;
+    //preferred_core_id = core_dis(core_gen);
 
-    if (closestReplica == -1) {
+    // pick the prepare and commit thread on the replicas in a round-robin fashion
+    preferred_thread_id = global_thread_id % FLAGS_numServerThreads;
+
+    // pick the replica and thread id for read in a round-robin fashion
+    int global_preferred_read_thread_id  = global_thread_id % (FLAGS_numServerThreads * config.n);
+    int local_preferred_read_thread_id = global_preferred_read_thread_id / config.n;
+
+    if (FLAGS_closestReplica == -1) {
         //localReplica =  (global_thread_id / nsthreads) % nReplicas;
-        localReplica = replica_dis(replica_gen);
+        // localReplica = replica_dis(replica_gen);
+        localReplica = global_preferred_read_thread_id % config.n;
     } else {
-        localReplica = closestReplica;
+        localReplica = FLAGS_closestReplica;
     }
 
     //fprintf(stderr, "global_thread_id = %d; localReplica = %d\n", global_thread_id, localReplica);
-
-    if (mode == MODE_DRSILO) {
-        {
-            // std::lock_guard<std::mutex> lck (mtx); //guard the libevent setup
-	        // client = new silostore::Client(configPath, nsthreads, nShards,
-            //                                localReplica,
-            //                                twopc, replicated,
-            //                                TrueTime(skew, error), replScheme);
-        }
-    } else if (mode == MODE_MTAPIR) {
-        {
-            std::lock_guard<std::mutex> lck (mtx); //guard the libevent setup
-            // client = new multitapirstore::Client(configPath, nsthreads, nShards,
-            //                                  localReplica,
-            //                                  twopc, replicated,
-            //                                  TrueTime(skew, error), replScheme);
-        }
+    if (FLAGS_mode == "mtapir") {
+        client = new meerkatstore::Client(config,
+                                            transport,
+                                            FLAGS_numServerThreads,
+                                            FLAGS_numShards,
+                                            localReplica,
+                                            preferred_thread_id,
+                                            local_preferred_read_thread_id,
+                                            twopc, replicated,
+                                            TrueTime(FLAGS_skew, FLAGS_error),
+                                            FLAGS_replScheme);
     } else {
-        fprintf(fp, "option -m is required\n");
+        fprintf(fp, "option --mode is required\n");
         exit(0);
     }
 
-    struct timeval t0, t1, t2, t3;
+    struct timeval t0, t1, t2;
 
     int nTransactions = 0;
     int tCount = 0;
     double tLatency = 0.0;
     int getCount = 0;
     double getLatency = 0.0;
-    int putCount = 0;
-    double putLatency = 0.0;
-    int beginCount = 0;
-    double beginLatency = 0.0;
     int commitCount = 0;
     double commitLatency = 0.0;
     string key, value;
     char buffer[100];
-    bool status = 0;
-    int ttype; // Transaction type.
-    int retries = 0;
+    bool status;
+    string v (56, 'x'); //56 bytes
 
     gettimeofday(&t0, NULL);
     srand(t0.tv_sec + t0.tv_usec);
-    //string v="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; //56 bytes
-    string v="v";
 
-
+    std::vector<int> keyIdx;
+    int ttype; // Transaction type.
+    int ret;
     while (1) {
         keyIdx.clear();
-
-        // Begin a transaction.
-        //core_id = core_dis(core_gen);
-        client->Begin();
-        //((silostore::Client *)client)->Begin(preffered_core_id);
-        gettimeofday(&t1, NULL);
         status = true;
+
+        gettimeofday(&t1, NULL);
+        client->Begin();
 
         // Decide which type of retwis transaction it is going to be.
         ttype = rand() % 100;
@@ -230,31 +190,22 @@ void* run_client(void *arg) {
             ttype = 4;
         }
 
-        gettimeofday(&t3, NULL);
-        if (status)
+        //gettimeofday(&t3, NULL);
+        if (status) {
             status = client->Commit();
-        else {
-            gettimeofday(&t1, NULL);
-            if ( ((t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec)) > duration*1000000)
-                break;
-            else continue;
         }
-        //status = true;
         gettimeofday(&t2, NULL);
 
-        commitCount++;
-        commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
+        //commitCount++;
+        //commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
 
         long latency = (t2.tv_sec - t1.tv_sec)*1000000 + (t2.tv_usec - t1.tv_usec);
 
-//        fprintf(fp, "%d %ld.%06ld %ld.%06ld %ld %d\n", nTransactions+1, t1.tv_sec,
-//                t1.tv_usec, t2.tv_sec, t2.tv_usec, latency, status?1:0);
-
         // log only the transactions that finished in the interval we actually measure
-        if ((t2.tv_sec > seconds_from_epoch + warmup) &&
-            (t2.tv_sec < seconds_from_epoch + duration - warmup)) {
-            sprintf(buffer, "%d %ld.%06ld %ld.%06ld %ld %d %d %d\n", ++nTransactions, t1.tv_sec,
-                    t1.tv_usec, t2.tv_sec, t2.tv_usec, latency, status?1:0, ttype, retries);
+        if ((t2.tv_sec > FLAGS_secondsFromEpoch + FLAGS_warmup) &&
+            (t2.tv_sec < FLAGS_secondsFromEpoch + FLAGS_duration - FLAGS_warmup)) {
+            sprintf(buffer, "%d %ld.%06ld %ld.%06ld %ld %d\n", ++nTransactions, t1.tv_sec,
+                    t1.tv_usec, t2.tv_sec, t2.tv_usec, latency, status?1:0);
             results.push_back(string(buffer));
 
             if (status) {
@@ -262,27 +213,46 @@ void* run_client(void *arg) {
                 tLatency += latency;
             }
         }
-
         gettimeofday(&t1, NULL);
-        if ( ((t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec)) > duration*1000000)
+        if ( ((t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec)) > FLAGS_duration*1000000)
             break;
     }
-
+  
     for (auto line : results) {
         fprintf(fp, "%s", line.c_str());
     }
 
     fprintf(fp, "# Commit_Ratio: %lf\n", (double)tCount/nTransactions);
     fprintf(fp, "# Overall_Latency: %lf\n", tLatency/tCount);
-    fprintf(fp, "# Begin: %d, %lf\n", beginCount, beginLatency/beginCount);
     fprintf(fp, "# Get: %d, %lf\n", getCount, getLatency/getCount);
-    fprintf(fp, "# Put: %d, %lf\n", putCount, putLatency/putCount);
     fprintf(fp, "# Commit: %d, %lf\n", commitCount, commitLatency/commitCount);
-
     fclose(fp);
-
-    return NULL;
 }
+
+void* client_thread_func(int thread_id, transport::Configuration config) {
+    // create the transport
+    FastTransport *transport = new FastTransport(config,
+                                                FLAGS_ip,
+                                                FLAGS_numServerThreads,
+                                                0,
+                                                FLAGS_physPort,
+                                                0,
+                                                thread_id);
+
+    // create the client fibers
+    boost::fibers::fiber client_fibers[FLAGS_numClientFibers];
+
+    for (int i = 0; i < FLAGS_numClientFibers; i++) {
+        boost::fibers::fiber f(client_fiber_func, thread_id * FLAGS_numClientFibers + i, config, transport);
+        client_fibers[i] = std::move(f);
+    }
+
+    for (int i = 0; i < FLAGS_numClientFibers; i++) {
+        client_fibers[i].join();
+    }
+    return NULL;
+};
+
 
 void segfault_sigaction(int signal, siginfo_t *si, void *arg)
 {
@@ -290,218 +260,8 @@ void segfault_sigaction(int signal, siginfo_t *si, void *arg)
     exit(0);
 }
 
-int
-main(int argc, char **argv)
-{
-
-    int opt;
-    while ((opt = getopt(argc, argv, "a:c:d:N:l:t:T:w:k:f:m:e:s:z:r:R:p:h:S:")) != -1) {
-        switch (opt) {
-        case 'c': // Configuration path
-        {
-            configPath = optarg;
-            break;
-        }
-
-        case 'f': // Generated keys path
-        {
-            keysPath = optarg;
-            break;
-        }
-
-        case 'N': // Number of shards.
-        {
-            char *strtolPtr;
-            nShards = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (nShards <= 0)) {
-                fprintf(stderr, "option -n requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'd': // Duration in seconds to run.
-        {
-            char *strtolPtr;
-            duration = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (duration <= 0)) {
-                fprintf(stderr, "option -n requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'a': // Duration in seconds to run.
-        {
-            char *strtolPtr;
-            warmup = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (warmup <= 0)) {
-                fprintf(stderr, "option -a requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'l': // Length of each transaction (deterministic!)
-        {
-            char *strtolPtr;
-            tLen = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (tLen <= 0)) {
-                fprintf(stderr, "option -l requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'w': // Percentage of writes (out of 100)
-        {
-            char *strtolPtr;
-            wPer = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (wPer < 0 || wPer > 100)) {
-                fprintf(stderr, "option -w requires a arg b/w 0-100\n");
-            }
-            break;
-        }
-
-        case 'k': // Number of keys to operate on.
-        {
-            char *strtolPtr;
-            nKeys = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (nKeys <= 0)) {
-                fprintf(stderr, "option -k requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 's': // Simulated clock skew.
-        {
-            char *strtolPtr;
-            skew = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') || (skew < 0))
-            {
-                fprintf(stderr,
-                        "option -s requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'e': // Simulated clock error.
-        {
-            char *strtolPtr;
-            error = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') || (error < 0))
-            {
-                fprintf(stderr,
-                        "option -e requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 't':
-        {
-            char *strtolPtr;
-            nsthreads = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr, "option -t requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'p':
-        {
-            char *strtolPtr;
-            ncpu = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr, "option -p requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'h':
-        {
-            char *strtolPtr;
-            nhost = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr, "option -h requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'T':
-        {
-            char *strtolPtr;
-            ncthreads = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr, "option -T requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'z': // Zipf coefficient for key selection.
-        {
-            char *strtolPtr;
-            alpha = strtod(optarg, &strtolPtr);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr,
-                        "option -z requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'r': // Preferred closest replica.
-        {
-            char *strtolPtr;
-            closestReplica = strtod(optarg, &strtolPtr);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr,
-                        "option -r requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'R': // Preferred replication scheme.
-        {
-            replScheme = optarg;
-            break;
-        }
-
-        case 'm': // Mode to run in [occ/lock/...]
-        {
-            if (strcasecmp(optarg, "drsilo") == 0) {
-                mode = MODE_DRSILO;
-            } else if (strcasecmp(optarg, "mtapir") == 0) {
-                mode = MODE_MTAPIR;
-            } else {
-                fprintf(stderr, "unknown mode '%s'\n", optarg);
-                exit(0);
-            }
-            break;
-        }
-
-        case 'S': // number of seconds used to compute the start and end of the actual experiment
-        {
-            char *strtolPtr;
-            seconds_from_epoch = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (seconds_from_epoch <= 0)) {
-                fprintf(stderr, "option -S requires a numeric arg\n");
-            }
-            break;
-        }
-
-        default:
-            fprintf(stderr, "Unknown argument %s\n", argv[optind]);
-            break;
-        }
-    }
+int main(int argc, char **argv) {
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     struct sigaction sa;
 
@@ -515,72 +275,62 @@ main(int argc, char **argv)
     // initialize the uniform distribution
     std::random_device rd;
     key_gen = std::mt19937(rd());
-    key_dis = std::uniform_int_distribution<uint32_t>(0, nKeys - 1);
-
-    // create key distributions per core
-    //for (int i = 0; i < nsthreads; i++) {
-    //    key_dis = std::uniform_int_distribution<uint32_t>(i * nKeys / keysPerCore, (i + 1) * nKeys / keysPerCore - 1);
-    //    keys_distributions.push_back(std::uniform_int_distribution<uint32_t>(i * keysPerCore, (i + 1) * keysPerCore - 1));
-    //    keys_distributions.push_back(std::uniform_int_distribution<uint32_t>(i * keysPerCore, i*keysPerCore + 10));
-    //}
 
     // Read in the keys from a file.
     string key, value;
     ifstream in;
-    in.open(keysPath);
+    in.open(FLAGS_keysFile);
     if (!in) {
-        fprintf(stderr, "Could not read keys from: %s\n", keysPath);
+        fprintf(stderr, "Could not read keys from: %s\n",
+                FLAGS_keysFile.c_str());
         exit(0);
     }
-    for (int i = 0; i < nKeys; i++) {
+    for (int i = 0; i < FLAGS_numKeys; i++) {
         getline(in, key);
         keys.push_back(key);
     }
     in.close();
 
-    // Create client threads
-    pthread_t* t;
-    std::vector<pthread_t *> threads;
-    int* tid;
-
-    for (int i = 0; i < ncthreads; i++) {
-        t = new pthread_t;
-        tid = new int;
-        // TODO: pass host id (given as incremental number times the
-        //       number of client processes we start on the host)
-        // Unique thread id
-        //*tid = nhost + ncpu * ncthreads + i;
-        *tid = i;
-        pthread_create(t, NULL, run_client, (void*) tid);
-        threads.push_back(t);
+    // Load configuration
+    std::ifstream configStream(FLAGS_configFile);
+    if (configStream.fail()) {
+        fprintf(stderr, "unable to read configuration file: %s\n",
+                FLAGS_configFile.c_str());
     }
+    transport::Configuration config(configStream);
 
-	for (auto t : threads){
-        pthread_join(*t, NULL);
+    // Create the transport threads; each transport thread will run
+    // FLAGS_numClientThreads client fibers
+    std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
+    for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
+        client_thread_arr[i] = std::thread(client_thread_func, i, config);
+        // uint8_t idx = i/2 + (i % 2) * 12;
+        erpc::bind_to_core(client_thread_arr[i], 0, i);
     }
+    for (auto &thread : client_thread_arr) thread.join();
 
     return 0;
 }
 
 int rand_key()
 {
-    if (alpha <= 0) {
+    if (FLAGS_zipf <= 0) {
         // Uniform selection of keys.
         return key_dis(key_gen);
     } else {
         // Zipf-like selection of keys.
         if (!ready) {
-            zipf = new double[nKeys];
+            zipf = new double[FLAGS_numKeys];
 
             double c = 0.0;
-            for (int i = 1; i <= nKeys; i++) {
-                c = c + (1.0 / pow((double) i, alpha));
+            for (int i = 1; i <= FLAGS_numKeys; i++) {
+                c = c + (1.0 / pow((double) i, FLAGS_zipf));
             }
             c = 1.0 / c;
 
             double sum = 0.0;
-            for (int i = 1; i <= nKeys; i++) {
-                sum += (c / pow((double) i, alpha));
+            for (int i = 1; i <= FLAGS_numKeys; i++) {
+                sum += (c / pow((double) i, FLAGS_zipf));
                 zipf[i-1] = sum;
             }
             ready = true;
@@ -592,7 +342,7 @@ int rand_key()
         }
 
         // binary search to find key;
-        int l = 0, r = nKeys, mid;
+        int l = 0, r = FLAGS_numKeys, mid;
         while (l < r) {
             mid = (l + r) / 2;
             if (random > zipf[mid]) {

@@ -8,7 +8,7 @@
 
 #include "store/common/truetime.h"
 #include "store/common/frontend/client.h"
-#include "store/multitapirstore/client.h"
+#include "store/meerkatstore/client.h"
 #include "store/common/flags.h"
 
 #include <boost/fiber/all.hpp>
@@ -78,7 +78,7 @@ void client_fiber_func(int thread_id,
 
     //fprintf(stderr, "global_thread_id = %d; localReplica = %d\n", global_thread_id, localReplica);
     if (FLAGS_mode == "mtapir") {
-        client = new multitapirstore::Client(config,
+        client = new meerkatstore::Client(config,
                                             transport,
                                             FLAGS_numServerThreads,
                                             FLAGS_numShards,
@@ -93,7 +93,7 @@ void client_fiber_func(int thread_id,
         exit(0);
     }
 
-    struct timeval t0, t1, t2, t3, t4;
+    struct timeval t0, t1, t2;
 
     int nTransactions = 0;
     int tCount = 0;
@@ -133,29 +133,29 @@ void client_fiber_func(int thread_id,
                     client->Put(key, v);
                     w++;
                 } else {
-                    gettimeofday(&t3, NULL);
+                    //gettimeofday(&t3, NULL);
                     status = client->Get(key, value) == REPLY_OK;
-                    gettimeofday(&t4, NULL);
+                    //gettimeofday(&t4, NULL);
 
                     // the INC workload
                     client->Put(key, v);
 
-                    getCount++;
-                    getLatency += ((t4.tv_sec - t3.tv_sec)*1000000 + (t4.tv_usec - t3.tv_usec));
+                    //getCount++;
+                    //getLatency += ((t4.tv_sec - t3.tv_sec)*1000000 + (t4.tv_usec - t3.tv_usec));
                     r++;
                 }
             } else {
                 // read priority
                 if (r < nr_reads) {
-                    gettimeofday(&t3, NULL);
+                    //gettimeofday(&t3, NULL);
                     status = client->Get(key, value) == REPLY_OK;
-                    gettimeofday(&t4, NULL);
+                    //gettimeofday(&t4, NULL);
 
                     // the INC workload
                     client->Put(key, v);
 
-                    getCount++;
-                    getLatency += ((t4.tv_sec - t3.tv_sec)*1000000 + (t4.tv_usec - t3.tv_usec));
+                    //getCount++;
+                    //getLatency += ((t4.tv_sec - t3.tv_sec)*1000000 + (t4.tv_usec - t3.tv_usec));
                     r++;
                 } else {
                     client->Put(key, v);
@@ -164,14 +164,14 @@ void client_fiber_func(int thread_id,
             }
         }
 
-        gettimeofday(&t3, NULL);
+        //gettimeofday(&t3, NULL);
         if (status) {
             status = client->Commit();
         }
         gettimeofday(&t2, NULL);
 
-        commitCount++;
-        commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
+        //commitCount++;
+        //commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
 
         long latency = (t2.tv_sec - t1.tv_sec)*1000000 + (t2.tv_usec - t1.tv_usec);
 
@@ -191,7 +191,7 @@ void client_fiber_func(int thread_id,
         if ( ((t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec)) > FLAGS_duration*1000000)
             break;
     }
-  
+
     for (auto line : results) {
         fprintf(fp, "%s", line.c_str());
     }
