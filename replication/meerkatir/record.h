@@ -28,8 +28,8 @@
  *
  **********************************************************************/
 
-#ifndef _IR_RECORD_H_
-#define _IR_RECORD_H_
+#ifndef _MEERKATIR_RECORD_H_
+#define _MEERKATIR_RECORD_H_
 
 #include <map>
 #include <unordered_map>
@@ -161,6 +161,6 @@ private:
     RecordMap entries;
 };
 
-}      // namespace ir
+}      // namespace meerkatir
 }      // namespace replication
-#endif  /* _IR_RECORD_H_ */
+#endif  /* _MEERKATIR_RECORD_H_ */

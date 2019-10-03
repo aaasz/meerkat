@@ -209,7 +209,7 @@ ShardClientIR::GiveUpTimeout() {
 /* Callback from a shard replica on get operation completion. */
 void ShardClientIR::GetCallback(char *respBuf) {
     /* Replies back from a replica. */
-    auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
+    auto *resp = reinterpret_cast<replication::meerkatir::unlogged_response_t *>(respBuf);
 
     // Debug("[shard %lu:%i] GET callback [%d]", client_id, shard, reply.status());
     if (waiting != NULL) {

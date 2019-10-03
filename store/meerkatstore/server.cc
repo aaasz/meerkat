@@ -98,7 +98,7 @@ void ServerIR::ExecConsensusUpcall(txnid_t txn_id,
     int status;
     Timestamp proposed;
 
-    auto *resp = reinterpret_cast<consensus_response_t *>(respBuf);
+    auto *resp = reinterpret_cast<replication::meerkatir::consensus_response_t *>(respBuf);
 
     if (crt_txn_state->txn_status == NOT_PREPARED) {
         // TODO: make sure this creates a copy
@@ -142,12 +142,12 @@ void ServerIR::UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) {
     Debug("Received Unlogged Request: %s", reqBuf);
     pair<Timestamp, string> val;
 
-    auto *req = reinterpret_cast<unlogged_request_t *>(reqBuf);
+    auto *req = reinterpret_cast<replication::meerkatir::unlogged_request_t *>(reqBuf);
     std::string key = string(req->key, 64);
     int status = store->Get(key, val);
 
-    auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
-    respLen = sizeof(unlogged_response_t);
+    auto *resp = reinterpret_cast<replication::meerkatir::unlogged_response_t *>(respBuf);
+    respLen = sizeof(replication::meerkatir::unlogged_response_t);
     resp->status = status;
     resp->req_nr = req->req_nr;
     resp->timestamp = val.first.getTimestamp();

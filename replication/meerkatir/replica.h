@@ -17,6 +17,7 @@
 #include "lib/fasttransport.h"
 #include "replication/common/quorumset.h"
 #include "replication/meerkatir/record.h"
+#include "replication/meerkatir/messages.h"
 
 
 namespace replication {

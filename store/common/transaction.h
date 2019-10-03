@@ -69,4 +69,17 @@ public:
     void clear();
 };
 
+// transations are serialized to a buffer containing arrays
+// of these structures:
+struct read_t {
+        uint64_t timestamp;
+        uint64_t id;
+        char key[64];
+};
+
+struct write_t {
+        char key[64];
+        char value[64];
+};
+
 #endif /* _TRANSACTION_H_ */

@@ -36,6 +36,7 @@
 #include "lib/fasttransport.h"
 #include "lib/configuration.h"
 #include "store/common/transaction.h"
+#include "replication/meerkatir/messages.h"
 
 #include <functional>
 #include <map>
