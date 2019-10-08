@@ -146,6 +146,7 @@ endef
 
 include lib/Rules.mk
 include replication/meerkatir/Rules.mk
+include replication/tapirir/Rules.mk
 include store/common/Rules.mk
 include store/meerkatstore/Rules.mk
 include store/benchmark/Rules.mk
