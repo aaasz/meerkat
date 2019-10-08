@@ -5,6 +5,7 @@
  *   a replica's log of pending and committed operations
  *
  * Copyright 2013 Dan R. K. Ports  <drkp@cs.washington.edu>
+ *           2019 Adriana Szekeres <aaasz@cs.washington.edu>      
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -28,14 +29,13 @@
  *
  **********************************************************************/
 
-#include "replication/meerkatir/record.h"
+#include "replication/common/record.h"
 
 #include <utility>
 
 #include "lib/assert.h"
 
 namespace replication {
-namespace meerkatir {
 
 RecordEntry &
 Record::Add(const RecordEntry& entry) {
@@ -159,5 +159,4 @@ const RecordMap &Record::Entries() const {
     return entries;
 }
 
-} // namespace ir
 } // namespace replication

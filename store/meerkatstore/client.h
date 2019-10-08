@@ -57,8 +57,7 @@ public:
         uint8_t preferred_core_id,
         uint8_t preferred_read_core_id,
         bool twopc, bool replicated,
-        TrueTime timeserver = TrueTime(0,0),
-        const string replScheme = "ir");
+        TrueTime timeserver = TrueTime(0,0));
     virtual ~Client();
 
     // Overriding functions from ::Client.
@@ -72,7 +71,7 @@ public:
     std::vector<int> Stats();
 
 private:
-    // Transport shared by multiple clients.
+    // Transport shared by multiple client fibers.
     Transport *transport;
 
     // Unique ID for this client.
@@ -97,8 +96,6 @@ private:
     // List of participants in the ongoing transaction.
     std::set<int> participants;
 
-    std::thread transport_thread;
-
     // Is the database replicated.
     const bool replicated;
 
@@ -111,9 +108,6 @@ private:
 
     // TrueTime server.
     TrueTime timeServer;
-
-    // config parameter
-    const string replScheme;
 
     // select core_id for the current transaction from a uniform distribution
     std::mt19937 core_gen;

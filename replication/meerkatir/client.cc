@@ -69,7 +69,7 @@ IRClient::IRClient(const transport::Configuration &config,
 IRClient::~IRClient()
 {
     for (auto kv : pendingReqs) {
-	delete kv.second;
+        delete kv.second;
     }
 }
 
@@ -379,13 +379,11 @@ void IRClient::HandleUnloggedReply(char *respBuf) {
 
     // delete timer event
     //req->timer->Stop();
-    // remove from pending list
-    //pendingReqs.erase(it);
-    pendingUnloggedReqs.erase(resp->req_nr);
     // invoke application callback
     req.get_continuation(respBuf);
+    // remove from pending list
+    pendingUnloggedReqs.erase(resp->req_nr);
     blocked = false;
-    //delete req;
 }
 
 void IRClient::HandleInconsistentReply(char *respBuf) {

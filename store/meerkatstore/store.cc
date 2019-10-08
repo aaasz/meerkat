@@ -77,7 +77,7 @@ Store::Get(txnid_t txn_id, const string &key, pair<Timestamp,string> &value)
 int
 Store::Get(txnid_t txn_id, const string &key, const Timestamp &timestamp, pair<Timestamp,string> &value)
 {
-    Panic("Gets at a particular timestamp are not supported by MTapir.");
+    Panic("Gets at a particular timestamp are not supported by Meerkatstore.");
     return REPLY_FAIL;
 }
 

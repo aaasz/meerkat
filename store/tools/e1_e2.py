@@ -41,10 +41,8 @@ def main(args):
           num_threads_per_client = num_threads_per_client,
           num_fibers_per_client_thread = num_fibers_per_client_thread,
           zipf_coefficient = zipf_coefficient,
-          repl_scheme = repl_scheme,
       )
 
-      for repl_scheme in ['ir']
       # Keep load 24 clients per core
       for (num_server_threads,
            num_keys,
@@ -52,10 +50,10 @@ def main(args):
            num_threads_per_client,
            num_fibers_per_client_thread) in [
                                        (4, 4 * 500000, 1, 6, 8),
-                                       (8, 8 * 500000, 2, 6, 8),
-                                       (16, 16 * 500000, 4, 6, 8),
+                                       #(8, 8 * 500000, 2, 6, 8),
+                                       #(16, 16 * 500000, 4, 6, 8),
                                        #(32, 32 * 500000, 8, 6, 8),
-                                       #(64, 64 * 500000, 8, 12, 8),
+                                       #(64, 64 * 500000, 10, 8, 8),
                                        #(68, 68 * 500000, 10, 11, 8),
                                        #(72, 72 * 500000, 10, 11, 8),
                                        #(76, 76 * 500000, 10, 12, 8),

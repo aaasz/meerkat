@@ -77,7 +77,7 @@ void client_fiber_func(int thread_id,
     }
 
     //fprintf(stderr, "global_thread_id = %d; localReplica = %d\n", global_thread_id, localReplica);
-    if (FLAGS_mode == "mtapir") {
+    if (FLAGS_mode == "meerkatstore") {
         client = new meerkatstore::Client(config,
                                             transport,
                                             FLAGS_numServerThreads,
@@ -86,8 +86,7 @@ void client_fiber_func(int thread_id,
                                             preferred_thread_id,
                                             local_preferred_read_thread_id,
                                             twopc, replicated,
-                                            TrueTime(FLAGS_skew, FLAGS_error),
-                                            FLAGS_replScheme);
+                                            TrueTime(FLAGS_skew, FLAGS_error));
     } else {
         fprintf(fp, "option --mode is required\n");
         exit(0);

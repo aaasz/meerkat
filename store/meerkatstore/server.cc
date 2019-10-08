@@ -36,41 +36,20 @@
 
 #include "store/meerkatstore/server.h"
 
-
-#define MULTITAPIRSTORE_MEASURE__TIMES false
-
 namespace meerkatstore {
 
 using namespace std;
 
-/*******************************************************
- IR App calls
- *******************************************************/
-
-void ServerIR::ExecInconsistentUpcall(txnid_t txn_id,
-                            RecordEntryIR *crt_txn_state,
+void ServerMeerkatIR::ExecInconsistentUpcall(txnid_t txn_id,
+                            replication::RecordEntry *crt_txn_state,
                             bool commit) {
-#if  MULTITAPIRSTORE_MEASURE__TIMES
-    struct timespec s, e;
-#endif
     if (commit) {
         if (crt_txn_state->txn_status == NOT_PREPARED) {
             // TODO: get state from other replicas
             Warning("Trying to commit an un-prepared transaction.");
         }
         if (crt_txn_state->txn_status != COMMITTED)
-#if  MULTITAPIRSTORE_MEASURE__TIMES
-            { clock_gettime(CLOCK_REALTIME, &s);
-#endif
             store->Commit(txn_id, crt_txn_state->ts, crt_txn_state->txn);
-#if  MULTITAPIRSTORE_MEASURE__TIMES
-            clock_gettime(CLOCK_REALTIME, &e);
-            long lat_ns = e.tv_nsec-s.tv_nsec;
-            if (e.tv_nsec < s.tv_nsec) { //clock underflow
-                lat_ns += 1000000000;
-            }
-            latency_commit.push_back(lat_ns); }
-#endif
         crt_txn_state->txn_status = COMMITTED;
     } else {
         if (crt_txn_state->txn_status == NOT_PREPARED) {
@@ -83,17 +62,14 @@ void ServerIR::ExecInconsistentUpcall(txnid_t txn_id,
     }
 }
 
-void ServerIR::ExecConsensusUpcall(txnid_t txn_id,
-                            RecordEntryIR *crt_txn_state,
+void ServerMeerkatIR::ExecConsensusUpcall(txnid_t txn_id,
+                            replication::RecordEntry *crt_txn_state,
                             uint8_t nr_reads,
                             uint8_t nr_writes,
                             uint64_t timestamp,
                             uint64_t id,
                             char *reqBuf,
                             char *respBuf, size_t &respLen) {
-#if  MULTITAPIRSTORE_MEASURE__TIMES
-    struct timespec s, e;
-#endif
     Debug("Received Consensus Request");
     int status;
     Timestamp proposed;
@@ -105,22 +81,10 @@ void ServerIR::ExecConsensusUpcall(txnid_t txn_id,
         crt_txn_state->txn = Transaction(nr_reads, nr_writes, reqBuf);
         crt_txn_state->ts = Timestamp(timestamp, id);
         //Debug("Prepare at timestamp: %lu", crt_txn_state->ts.getTimestamp());
-#if  MULTITAPIRSTORE_MEASURE__TIMES
-        clock_gettime(CLOCK_REALTIME, &s);
-#endif
         status = store->Prepare(txn_id,
                                 crt_txn_state->txn,
                                 crt_txn_state->ts,
                                 proposed);
-
-#if  MULTITAPIRSTORE_MEASURE__TIMES
-        clock_gettime(CLOCK_REALTIME, &e);
-        long lat_ns = e.tv_nsec-s.tv_nsec;
-        if (e.tv_nsec < s.tv_nsec) { //clock underflow
-            lat_ns += 1000000000;
-        }
-        latency_prepare.push_back(lat_ns);
-#endif
         resp->status = status;
         if (proposed.isValid()) {
             resp->id = proposed.getID();
@@ -138,7 +102,7 @@ void ServerIR::ExecConsensusUpcall(txnid_t txn_id,
     }
 }
 
-void ServerIR::UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) {
+void ServerMeerkatIR::UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) {
     Debug("Received Unlogged Request: %s", reqBuf);
     pair<Timestamp, string> val;
 
@@ -156,57 +120,13 @@ void ServerIR::UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) {
 }
 
 void
-ServerIR::Load(const string &key, const string &value, const Timestamp timestamp)
-{
+ServerMeerkatIR::Load(const string &key, const string &value, const Timestamp timestamp) {
     store->Load(key, value, timestamp);
 }
 
 void
-ServerIR::PrintStats() {
+ServerMeerkatIR::PrintStats() {
     // fprintf(stderr, "%lu\n", store->fake_counter[10].load());
-#if  MULTITAPIRSTORE_MEASURE__TIMES
-    // Discard first third of collected results
-
-    std::sort(latency_get.begin() + latency_get.size()/3, latency_get.end() - latency_get.size()/3);
-    std::sort(latency_prepare.begin() + latency_prepare.size()/3, latency_prepare.end() - latency_prepare.size()/3);
-    std::sort(latency_commit.begin() + latency_commit.size()/3, latency_commit.end() - latency_prepare.size()/3);
-
-    double latency_get_50 = latency_get[latency_get.size()/3 + ((latency_get.size() - 2 * latency_get.size()/3)*50)/100] / 1000.0;
-    double latency_get_99 = latency_get[latency_get.size()/3 + ((latency_get.size() - 2 * latency_get.size()/3)*99)/100] / 1000.0;
-
-    double latency_prepare_50 = latency_prepare[latency_get.size()/3 + ((latency_prepare.size() - 2 * latency_prepare.size()/3)*50)/100] / 1000.0;
-    double latency_prepare_99 = latency_prepare[latency_get.size()/3 + ((latency_prepare.size() - 2 * latency_prepare.size()/3)*99)/100] / 1000.0;
-
-    double latency_commit_50 = latency_commit[latency_get.size()/3 + ((latency_commit.size() - 2 * latency_commit.size()/3)*50)/100] / 1000.0;
-    double latency_commit_99 = latency_commit[latency_get.size()/3 + ((latency_commit.size() - 2 * latency_commit.size()/3)*99)/100] / 1000.0;
-
-    uint64_t latency_get_sum = std::accumulate(latency_get.begin() + latency_get.size()/3, latency_get.end() - latency_get.size()/3, 0);
-    uint64_t latency_prepare_sum = std::accumulate(latency_prepare.begin() + latency_prepare.size()/3, latency_prepare.end() - latency_prepare.size()/3, 0);
-    uint64_t latency_commit_sum = std::accumulate(latency_commit.begin() + latency_commit.size()/3, latency_commit.end() - latency_commit.size()/3, 0);
-
-    double latency_get_avg = latency_get_sum/(latency_get.size() - 2 * latency_get.size()/3)/1000.0;
-    double latency_prepare_avg = latency_prepare_sum/(latency_prepare.size() - 2 * latency_prepare.size()/3)/1000.0;
-    double latency_commit_avg = latency_commit_sum/(latency_commit.size() - 2 * latency_commit.size()/3)/1000.0;
-
-    fprintf(stderr, "Get latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_get.size(),
-            latency_get_avg,
-            latency_get_50,
-            latency_get_99);
-
-    fprintf(stderr, "Prepare latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_prepare.size(),
-            latency_prepare_avg,
-            latency_prepare_50,
-            latency_prepare_99);
-
-    fprintf(stderr, "Commit latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_commit.size(),
-            latency_commit_avg,
-            latency_commit_50,
-            latency_commit_99);
-
-#endif
 }
 
 } // namespace meerkatrstore

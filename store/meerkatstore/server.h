@@ -45,9 +45,6 @@
 
 namespace meerkatstore {
 
-using RecordEntryIR = replication::meerkatir::RecordEntry;
-//using RecordEntryLIR = replication::lir::RecordEntry;
-
 class Server {
 public:
     virtual ~Server() = default;
@@ -55,21 +52,21 @@ public:
                       const Timestamp timestamp) = 0;
 };
 
-class ServerIR : public Server, public replication::meerkatir::IRAppReplica
+class ServerMeerkatIR : public Server, public replication::meerkatir::IRAppReplica
 {
 public:
-    ServerIR()
+    ServerMeerkatIR()
         : kvs(new PthreadKvs()),
-          store(new Store(/*twopc=*/true, /*replicated=*/true, kvs.get())) {}
+          store(new Store(/*twopc=*/false, /*replicated=*/true, kvs.get())) {}
 
     // Invoke inconsistent operation, no return value
     void ExecInconsistentUpcall(txnid_t txn_id,
-                                RecordEntryIR *crt_txn_state,
+                                replication::RecordEntry *crt_txn_state,
                                 bool commit) override;
 
     // Invoke consensus operation
     void ExecConsensusUpcall(txnid_t txn_id,
-                            RecordEntryIR *crt_txn_state,
+                            replication::RecordEntry *crt_txn_state,
                             uint8_t nr_reads,
                             uint8_t nr_writes,
                             uint64_t timestamp,

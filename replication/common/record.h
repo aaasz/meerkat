@@ -5,6 +5,7 @@
  *   a replica's log of pending and committed operations
  *
  * Copyright 2013 Dan R. K. Ports  <drkp@cs.washington.edu>
+ *           2019 Adriana Szekeres <aaasz@cs.washington.edu>
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -28,8 +29,8 @@
  *
  **********************************************************************/
 
-#ifndef _MEERKATIR_RECORD_H_
-#define _MEERKATIR_RECORD_H_
+#ifndef _REPLICATION_RECORD_H_
+#define _REPLICATION_RECORD_H_
 
 #include <map>
 #include <unordered_map>
@@ -46,7 +47,6 @@
 #include <boost/unordered_map.hpp>
 
 namespace replication {
-namespace meerkatir {
 
 enum RecordEntryState {
     RECORD_STATE_TENTATIVE,
@@ -161,6 +161,6 @@ private:
     RecordMap entries;
 };
 
-}      // namespace meerkatir
 }      // namespace replication
-#endif  /* _MEERKATIR_RECORD_H_ */
+
+#endif  /* _REPLICATION_RECORD_H_ */

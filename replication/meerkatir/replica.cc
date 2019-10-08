@@ -12,8 +12,6 @@
 
 #include <set>
 
-#define IRREPLICA_MEASURE_APP_TIMES false
-
 namespace replication {
 namespace meerkatir {
 
@@ -33,12 +31,7 @@ IRReplica::IRReplica(transport::Configuration config, int myIdx,
 
 IRReplica::~IRReplica() { }
 
-// For now just the GETs and COMMITs go through this path
 void IRReplica::ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) {
-#if  IRREPLICA_MEASURE_APP_TIMES
-    struct timespec s, e;
-    clock_gettime(CLOCK_REALTIME, &s);
-#endif
     size_t respLen;
     switch(reqType) {
         case unloggedReqType:
@@ -56,11 +49,8 @@ void IRReplica::ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) {
         default:
             Warning("Unrecognized rquest type: %d", reqType);
     }
-#if  IRREPLICA_MEASURE_APP_TIMES
-    clock_gettime(CLOCK_REALTIME, &e);
-    double lat_us = (e.tv_nsec-s.tv_nsec)/1000.0 * kAppLatFac;
-    latency_get.push_back(static_cast<uint64_t>(lat_us));
-#endif
+
+    // For every request, we need to send a response (because we use eRPC)
     if (!(transport->SendResponse(respLen)))
         Warning("Failed to send reply message");
 }
@@ -71,9 +61,6 @@ void IRReplica::HandleUnloggedRequest(char *reqBuf, char *respBuf, size_t &respL
 }
 
 void IRReplica::HandleInconsistentRequest(char *reqBuf, char *respBuf, size_t &respLen) {
-#if  IRREPLICA_MEASURE_APP_TIMES
-    struct timespec s, e;
-#endif
     auto *req = reinterpret_cast<inconsistent_request_t *>(reqBuf);
 
     Debug("[%lu - %lu] Received inconsistent op nr %lu\n",
@@ -116,15 +103,7 @@ void IRReplica::HandleInconsistentRequest(char *reqBuf, char *respBuf, size_t &r
     // the app will decide whether to execute this commit/abort request
     // or not; if yes, it will specify the updated transaction status
     // and the result to return to the coordinator/client.
-#if  IRREPLICA_MEASURE_APP_TIMES
-    clock_gettime(CLOCK_REALTIME, &s);
-#endif
     app->ExecInconsistentUpcall(txnid, entry, req->commit);
-#if  IRREPLICA_MEASURE_APP_TIMES
-    clock_gettime(CLOCK_REALTIME, &e);
-    double lat_us = (e.tv_nsec-s.tv_nsec)/1000.0 * kAppLatFac;
-    latency_commit.push_back(static_cast<uint64_t>(lat_us));
-#endif
 
     // TODO: we use eRPC and it expects replies in order so we need
     // to send replies to all requests
@@ -178,18 +157,10 @@ void IRReplica::HandleConsensusRequest(char *reqBuf, char *respBuf, size_t &resp
     // or not; if yes, it will specify the updated transaction status
     // and the result to return to the coordinator/client.
     // string result;
-#if  IRREPLICA_MEASURE_APP_TIMES
-    clock_gettime(CLOCK_REALTIME, &s);
-#endif
     app->ExecConsensusUpcall(txnid, entry, req->nr_reads,
                              req->nr_writes, req->timestamp, req->id,
                              reqBuf + sizeof(consensus_request_header_t),
                              respBuf, respLen);
-#if  IRREPLICA_MEASURE_APP_TIMES
-    clock_gettime(CLOCK_REALTIME, &e);
-    double lat_us = (e.tv_nsec-s.tv_nsec)/1000.0 * kAppLatFac;
-    latency_prepare.push_back(static_cast<uint64_t>(lat_us));
-#endif
 
     if (entry->txn_status != crt_txn_status) {
         // Update record
@@ -260,50 +231,6 @@ void IRReplica::HandleFinalizeConsensusRequest(char *reqBuf, char *respBuf, size
 
 void
 IRReplica::PrintStats() {
-#if  IRREPLICA_MEASURE_APP_TIMES
-    std::sort(latency_get.begin(), latency_get.end());
-    std::sort(latency_prepare.begin(), latency_prepare.end());
-    std::sort(latency_commit.begin(), latency_commit.end());
-
-    uint64_t latency_get_size = latency_get.size();
-    uint64_t latency_prepare_size = latency_prepare.size();
-    uint64_t latency_commit_size = latency_prepare.size();
-
-    double latency_get_50 = latency_get[(latency_get_size*50)/100] / kAppLatFac;
-    double latency_get_99 = latency_get[(latency_get_size*99)/100] / kAppLatFac;
-
-    double latency_prepare_50 = latency_prepare[(latency_prepare_size*50)/100] / kAppLatFac;
-    double latency_prepare_99 = latency_prepare[(latency_prepare_size*99)/100] / kAppLatFac;
-
-    double latency_commit_50 = latency_commit[(latency_commit_size*50)/100] / kAppLatFac;
-    double latency_commit_99 = latency_commit[(latency_commit_size*99)/100] / kAppLatFac;
-
-    uint64_t latency_get_sum = std::accumulate(latency_get.begin(), latency_get.end(), 0);
-    uint64_t latency_prepare_sum = std::accumulate(latency_prepare.begin(), latency_prepare.end(), 0);
-    uint64_t latency_commit_sum = std::accumulate(latency_commit.begin(), latency_commit.end(), 0);
-
-    double latency_get_avg = latency_get_sum/latency_get_size/kAppLatFac;
-    double latency_prepare_avg = latency_prepare_sum/latency_prepare_size/kAppLatFac;
-    double latency_commit_avg = latency_commit_sum/latency_commit_size/kAppLatFac;
-
-    fprintf(stderr, "Get latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_get_size,
-            latency_get_avg,
-            latency_get_50,
-            latency_get_99);
-
-    fprintf(stderr, "Prepare latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_prepare_size,
-            latency_prepare_avg,
-            latency_prepare_50,
-            latency_prepare_99);
-
-    fprintf(stderr, "Commit latency (size = %d) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_commit_size,
-            latency_commit_avg,
-            latency_commit_50,
-            latency_commit_99);
-#endif
 }
 
 } // namespace ir

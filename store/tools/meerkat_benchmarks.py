@@ -348,7 +348,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
             "--numShards", "1",
             "--shardIndex", "0",
             "--numServerThreads", str(parameters.num_server_threads),
-            "--replScheme", str(parameters.repl_scheme),
+            #"--replScheme", str(parameters.repl_scheme),
         ]
 
         # We capture the stdout and stderr of the servers using the trick
@@ -401,8 +401,8 @@ def run_benchmark(bench_dir, clients, servers, parameters):
                 "--tLen", str(parameters.transaction_length),
                 "--wPer", str(parameters.write_percentage),
                 "--closestReplica", "-1",
-                "--mode", "mtapir",
-                "--replScheme", str(parameters.repl_scheme),
+                "--mode", "meerkatstore",
+                #"--replScheme", str(parameters.repl_scheme),
                 "--numServerThreads", str(parameters.num_server_threads),
                 "--zipf", str(parameters.zipf_coefficient),
                 "--ncpu", str(client_i),

@@ -41,22 +41,17 @@ namespace meerkatstore {
 
 using namespace std;
 
-// void client_thread_func(std::string replScheme, Transport *transport) {
-//     ((FastTransport *)transport)->Run();
-// }
-
 Client::Client(const transport::Configuration &config,
                 Transport *transport,
                 int nsthreads, int nShards,
                 uint8_t closestReplica,
                 uint8_t preferred_thread_id,
                 uint8_t preferred_read_thread_id,
-                bool twopc, bool replicated, TrueTime timeServer,
-                const string replScheme)
+                bool twopc, bool replicated, TrueTime timeServer)
     : transport(transport), t_id(0), preferred_thread_id(preferred_thread_id),
       preferred_read_thread_id(preferred_read_thread_id),
       nsthreads(nsthreads), nshards(nShards), replicated(replicated), twopc(twopc),
-      timeServer(timeServer), replScheme(replScheme), core_dis(0, nsthreads -1)
+      timeServer(timeServer), core_dis(0, nsthreads -1)
 {
     // Initialize all state here;
     srand(time(NULL));
@@ -74,7 +69,7 @@ Client::Client(const transport::Configuration &config,
 
     bclient.reserve(nshards);
 
-    Warning("Initializing Tapir client with id [%lu]; preferred_thread = %d,"
+    Warning("Initializing Meerkatstore client with id [%lu]; preferred_thread = %d,"
           "read_replica = %d, preferred_read_thread = %d",
           client_id, preferred_thread_id,
           closestReplica, preferred_read_thread_id);
@@ -85,16 +80,13 @@ Client::Client(const transport::Configuration &config,
     bclient.reserve(nshards);
     // for (uint64_t i = 0; i < nshards; i++) {
     //     string shardConfigPath = configPath + to_string(i) + ".config";
-    if (replScheme == "ir") {
-        shard_clients.push_back(std::unique_ptr<TxnClient>(
+    shard_clients.push_back(std::unique_ptr<TxnClient>(
           new ShardClientIR(config, transport, client_id, 0,
                                  closestReplica, replicated)));
-    } else
-        NOT_REACHABLE();
 
     bclient.push_back(std::unique_ptr<BufferClient>(new BufferClient(shard_clients[0].get())));
 
-    Debug("Tapir client [%lu] created! %lu %lu", client_id, nshards, bclient.size());
+    Debug("Meerkatstore client [%lu] created! %lu %lu", client_id, nshards, bclient.size());
 }
 
 Client::~Client()
@@ -245,15 +237,6 @@ Client::Commit()
         } else {
             break;
         }
-    }
-
-    // If we're not performing 2PC, then there's no need for another round
-    // after prepare.
-    // aaasz: for IR it is, unless it's not replicated
-    if ((!twopc && replScheme == "vr") ||
-      (!replicated && replScheme == "ir")) {
-        participants.clear();
-        return status == REPLY_OK;
     }
 
     if (status == REPLY_OK) {
