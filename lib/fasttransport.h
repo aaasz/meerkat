@@ -35,6 +35,7 @@
 
 #include "lib/configuration.h"
 #include "lib/transport.h"
+#include "lib/message.h"
 
 #include "rpc.h"
 #include "rpc_constants.h"
@@ -216,7 +217,7 @@ static void basic_sm_handler(int session_num, erpc::SmEventType sm_event_type,
 
     auto *c = static_cast<AppContext *>(_context);
 
-    ASSERT(sm_err_type == erpc::SmErrType::kNoError);
+    Assert(sm_err_type == erpc::SmErrType::kNoError);
     //  "SM response with error " + erpc::sm_err_type_str(sm_err_type));
 
     if (!(sm_event_type == erpc::SmEventType::kConnected ||
