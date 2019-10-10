@@ -56,23 +56,12 @@
 #include <numa.h>
 #include <boost/fiber/all.hpp>
 
-using std::pair;
-
-#define FASTTRANSPORT_MEASURE_TIMES false
-
 static std::mutex fasttransport_lock;
-
-//static uint64_t counters[16];
-
 static volatile bool fasttransport_initialized = false;
 
 // Function called when we received a response to a
 // request we sent on this transport
 static void fasttransport_response(void *_context, void *_tag) {
-#if FASTTRANSPORT_MEASURE_TIMES
-    struct timespec s, e;
-    clock_gettime(CLOCK_REALTIME, &s);
-#endif
     auto *c = static_cast<AppContext *>(_context);
     auto *rt = reinterpret_cast<req_tag_t *>(_tag);
     Debug("Received respose, reqType = %d", rt->reqType);
@@ -81,34 +70,26 @@ static void fasttransport_response(void *_context, void *_tag) {
     c->rpc->free_msg_buffer(rt->req_msgbuf);
     c->rpc->free_msg_buffer(rt->resp_msgbuf);
     c->client.req_tag_pool.free(rt);
-#if FASTTRANSPORT_MEASURE_TIMES
-    clock_gettime(CLOCK_REALTIME, &e);
-    //printf("fasttransport_rpc_response cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
-#endif
 }
 
 // Function called when we received a request
 static void fasttransport_request(erpc::ReqHandle *req_handle, void *_context) {
-#if FASTTRANSPORT_MEASURE_TIMES
-    struct timespec s, e;
-    clock_gettime(CLOCK_REALTIME, &s);
-#endif
     // save the req_handle for when we are in the SendMessage function
     auto *c = static_cast<AppContext *>(_context);
+#if MULTIPLE_ACTIVE_REQUESTS
+    c->server.req_handles[c->server.req_handle_idx] = req_handle;
+    // upcall to the app
+    c->server.receiver->ReceiveRequest(c->server.req_handle_idx,
+                                req_handle->get_req_msgbuf()->get_req_type(),
+                                reinterpret_cast<char *>(req_handle->get_req_msgbuf()->buf),
+                                reinterpret_cast<char *>(req_handle->pre_resp_msgbuf.buf));
+    c->server.req_handle_idx++;
+#else
     c->server.req_handle = req_handle;
     // upcall to the app
     c->server.receiver->ReceiveRequest(req_handle->get_req_msgbuf()->get_req_type(),
                                 reinterpret_cast<char *>(req_handle->get_req_msgbuf()->buf),
                                 reinterpret_cast<char *>(req_handle->pre_resp_msgbuf.buf));
-#if FASTTRANSPORT_MEASURE_TIMES
-    clock_gettime(CLOCK_REALTIME, &e);
-    // update latency vector
-    long lat_ns = e.tv_nsec-s.tv_nsec;
-    if (e.tv_nsec < s.tv_nsec) { //clock underflow
-        lat_ns += 1000000000;
-    };
-    c->server.latency_get.push_back(lat_ns);
-    //printf("fasttransport_rpc_request cost; size =  %d, latency = %.02f us\n", sz, (e.tv_nsec-s.tv_nsec)/1000.0);
 #endif
 }
 
@@ -157,21 +138,6 @@ FastTransport::FastTransport(const transport::Configuration &config,
             event_add(x, NULL);
         }
 
-        // Setup eRPC
-
-        // // TODO: why sharing one nexus object between threads does not scale?
-        // // TODO: create one nexus per numa node
-        // // right now we create one nexus object per
-        // for (uint8_t i = 0; i <= numa_max_node(); i++) {
-        //     std::string local_uri = ip + ":" + std::to_string(erpc::kBaseSmUdpPort + i);
-        //     //erpc::Nexus *n = new erpc::Nexus(local_uri, i, 0);
-        //     erpc::Nexus *n = new erpc::Nexus(local_uri, 0, 0);
-        //     for (uint8_t j = 1; j <= nr_req_types; j++) {
-        //         n->register_req_func(j, fasttransport_request, erpc::ReqFuncType::kForeground);
-        //     }
-        //     nexus.push_back(n);
-        //     Debug("Creating nexus objects with local_uri = %s", local_uri.c_str());
-        // }
         fasttransport_initialized = true;
     }
 
@@ -197,7 +163,6 @@ FastTransport::FastTransport(const transport::Configuration &config,
                                             basic_sm_handler, phy_port);
     c->rpc->retry_connect_on_invalid_rpc_id = true;
     fasttransport_lock.unlock();
-    //counters[id] = 0;
 }
 
 FastTransport::~FastTransport() {
@@ -219,8 +184,8 @@ inline char *FastTransport::GetRequestBuf() {
     return reinterpret_cast<char *>(c->client.crt_req_tag->req_msgbuf.buf);
 }
 
-inline int FastTransport::GetSession(TransportReceiver *src, uint8_t replicaIdx, uint8_t threadIdx) {
-    auto session_key = std::make_pair(replicaIdx, threadIdx);
+inline int FastTransport::GetSession(TransportReceiver *src, uint8_t replicaIdx, uint8_t dstRpcIdx) {
+    auto session_key = std::make_pair(replicaIdx, dstRpcIdx);
 
     const auto iter = c->client.sessions[src].find(session_key);
     if (iter == c->client.sessions[src].end()) {
@@ -230,14 +195,13 @@ inline int FastTransport::GetSession(TransportReceiver *src, uint8_t replicaIdx,
         //int numa_nodes_at_servers = 2;
         //int numa_nodes_at_servers = 1;
         int session_id = c->rpc->create_session(config.replica(replicaIdx).host + ":" +
-                                       //std::to_string(erpc::kBaseSmUdpPort + threadIdx % numa_nodes_at_servers), threadIdx);
-                                       std::to_string(erpc::kBaseSmUdpPort + threadIdx), threadIdx);
+                                       //std::to_string(erpc::kBaseSmUdpPort + dstRpcIdx % numa_nodes_at_servers), dstRpcIdx);
+                                       std::to_string(erpc::kBaseSmUdpPort + dstRpcIdx), dstRpcIdx);
         while (!c->rpc->is_connected(session_id)) {
             c->rpc->run_event_loop_once();
         }
-        // sleep to even more aggressively regulate the udp connections
         c->client.sessions[src][session_key] = session_id;
-        Warning("Opened eRPC session to %s, RPC id: %d", (config.replica(replicaIdx).host + ":" + std::to_string(erpc::kBaseSmUdpPort)).c_str(), threadIdx);
+        Warning("Opened eRPC session to %s, RPC id: %d", (config.replica(replicaIdx).host + ":" + std::to_string(erpc::kBaseSmUdpPort)).c_str(), dstRpcIdx);
         return session_id;
     } else {
         return iter->second;
@@ -249,10 +213,10 @@ inline int FastTransport::GetSession(TransportReceiver *src, uint8_t replicaIdx,
 bool FastTransport::SendRequestToReplica(TransportReceiver *src,
                                         uint8_t reqType,
                                         uint8_t replicaIdx,
-                                        uint8_t threadIdx,
+                                        uint8_t dstRpcIdx,
                                         size_t msgLen) {
     ASSERT(replicaIdx < config.n);
-    int session_id = GetSession(src, replicaIdx, threadIdx);
+    int session_id = GetSession(src, replicaIdx, dstRpcIdx);
 
     c->client.crt_req_tag->src = src;
     c->client.crt_req_tag->reqType = reqType;
@@ -269,14 +233,18 @@ bool FastTransport::SendRequestToReplica(TransportReceiver *src,
     return true;
 }
 
+// Sends to all replicas except if the sender is a replica,
+// it doesn't send to the sending replica
 bool FastTransport::SendRequestToAll(TransportReceiver *src,
                                     uint8_t reqType,
-                                    uint8_t threadIdx,
+                                    uint8_t dstRpcIdx,
                                     size_t msgLen) {
     c->rpc->resize_msg_buffer(&c->client.crt_req_tag->req_msgbuf, msgLen);
 
     for (int i = 0; i < config.n; i++) {
-        int session_id = GetSession(src, i, threadIdx);
+        // skip the sending replica
+        if (this->replicaIdx == i) continue;
+        int session_id = GetSession(src, i, dstRpcIdx);
 
         if (i == config.n - 1) {
             c->client.crt_req_tag->src = src;
@@ -302,10 +270,29 @@ bool FastTransport::SendRequestToAll(TransportReceiver *src,
                                     reinterpret_cast<void *>(rt));
         }
     }
+    if (this->replicaIdx == config.n - 1) {
+        // TODO: free the current buffer
+    }
+
     while (src->Blocked()) {
         c->rpc->run_event_loop_once();
         boost::this_fiber::yield();
     }
+    return true;
+}
+
+// For cases when there are multiple active requests that need response
+bool FastTransport::SendResponse(uint64_t reqHandleIdx, size_t msgLen) {
+    // we get here from fasttransport_rpc_request
+#if MULTIPLE_ACTIVE_REQUESTS
+    auto &resp = c->server.req_handles[reqHandleIdx]->pre_resp_msgbuf;
+    c->rpc->resize_msg_buffer(&resp, msgLen);
+    c->rpc->enqueue_response(c->server.req_handles[reqHandleIdx], &resp);
+    c->server.req_handles.erase(reqHandleIdx);
+    Debug("Sent response, msgLen = %lu\n", msgLen);
+#else
+    Panic("Compile fasttransport with MULTIPLE_ACTIVE_REQUESTS true");
+#endif
     return true;
 }
 
@@ -316,12 +303,10 @@ bool FastTransport::SendResponse(size_t msgLen) {
     c->rpc->resize_msg_buffer(&resp, msgLen);
     c->rpc->enqueue_response(c->server.req_handle, &resp);
     Debug("Sent response, msgLen = %lu\n", msgLen);
-    //counters[id]++;
     return true;
 }
 
 void FastTransport::Run() {
-    //sleep(10);
     while(!stop) {
         // if (replicaIdx == -1)
         //    event_base_loop(eventBase, EVLOOP_ONCE|EVLOOP_NONBLOCK);
@@ -449,57 +434,5 @@ void FastTransport::SignalCallback(evutil_socket_t fd,
 
 void FastTransport::Stop() {
     Debug("Stopping transport!");
-
-    // for (uint8_t i = 0; i < 16; i++) {
-    //     fprintf(stderr, "counters[%d] = %lu\n", i, counters[i]);
-    // }
-
-#if FASTTRANSPORT_MEASURE_TIMES
-    // Discard first third of collected results
-
-    fprintf(stderr, "Printing stats:\n");
-    std::vector<long> latency_get = c->server.latency_get;
-    std::vector<long> latency_prepare = c->server.latency_prepare;
-    std::vector<long> latency_commit = c->server.latency_commit;
-
-    std::sort(latency_get.begin() + latency_get.size()/3, latency_get.end() - latency_get.size()/3);
-    std::sort(latency_prepare.begin() + latency_prepare.size()/3, latency_prepare.end() - latency_prepare.size()/3);
-    std::sort(latency_commit.begin() + latency_commit.size()/3, latency_commit.end() - latency_prepare.size()/3);
-
-    double latency_get_50 = latency_get[latency_get.size()/3 + ((latency_get.size() - 2 * latency_get.size()/3)*50)/100] / 1000.0;
-    double latency_get_99 = latency_get[latency_get.size()/3 + ((latency_get.size() - 2 * latency_get.size()/3)*99)/100] / 1000.0;
-
-    double latency_prepare_50 = latency_prepare[latency_get.size()/3 + ((latency_prepare.size() - 2 * latency_prepare.size()/3)*50)/100] / 1000.0;
-    double latency_prepare_99 = latency_prepare[latency_get.size()/3 + ((latency_prepare.size() - 2 * latency_prepare.size()/3)*99)/100] / 1000.0;
-
-    double latency_commit_50 = latency_commit[latency_get.size()/3 + ((latency_commit.size() - 2 * latency_commit.size()/3)*50)/100] / 1000.0;
-    double latency_commit_99 = latency_commit[latency_get.size()/3 + ((latency_commit.size() - 2 * latency_commit.size()/3)*99)/100] / 1000.0;
-
-    long latency_get_sum = std::accumulate(latency_get.begin() + latency_get.size()/3, latency_get.end() - latency_get.size()/3, 0);
-    long latency_prepare_sum = std::accumulate(latency_prepare.begin() + latency_prepare.size()/3, latency_prepare.end() - latency_prepare.size()/3, 0);
-    long latency_commit_sum = std::accumulate(latency_commit.begin() + latency_commit.size()/3, latency_commit.end() - latency_commit.size()/3, 0);
-
-    double latency_get_avg = latency_get_sum/(latency_get.size() - 2 * latency_get.size()/3)/1000.0;
-    double latency_prepare_avg = latency_prepare_sum/(latency_prepare.size() - 2 * latency_prepare.size()/3)/1000.0;
-    double latency_commit_avg = latency_commit_sum/(latency_commit.size() - 2 * latency_commit.size()/3)/1000.0;
-
-    fprintf(stderr, "Get latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_get.size(),
-            latency_get_avg,
-            latency_get_50,
-            latency_get_99);
-
-    fprintf(stderr, "Prepare latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_prepare.size(),
-            latency_prepare_avg,
-            latency_prepare_50,
-            latency_prepare_99);
-
-    fprintf(stderr, "Commit latency (size = %lu) [avg: %.2f; 50 percentile: %.2f; 99 percentile: %.2f] us \n",
-            latency_commit.size(),
-            latency_commit_avg,
-            latency_commit_50,
-            latency_commit_99);
-#endif
     stop = true;
 }

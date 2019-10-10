@@ -125,12 +125,7 @@ main(int argc, char **argv)
                 "only %d replicas defined\n", FLAGS_replicaIndex, config.n);
     }
 
-    meerkatstore::Server *server;
-
-     if (FLAGS_replScheme == "ir") {
-         server = new meerkatstore::ServerMeerkatIR();
-     } else
-         NOT_REACHABLE();
+    meerkatstore::Server *server = new meerkatstore::ServerMeerkatIR();
 
     // Load keys in memory
     if (FLAGS_keysFile != "") {

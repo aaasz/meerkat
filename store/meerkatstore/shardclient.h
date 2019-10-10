@@ -82,7 +82,7 @@ public:
 private:
     transport::Configuration config;
     uint64_t client_id; // Unique ID for this client.
-    Transport *transport; // Transport layer.
+    Transport *transport; // Transport layer (shared by multiple client fibers).
     int shard; // which shard this client accesses
     int replica; // which replica to use for reads
     bool replicated; // Is the database replicated?

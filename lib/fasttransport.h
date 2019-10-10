@@ -57,6 +57,12 @@
 
 #include <boost/unordered_map.hpp>
 
+// This would make fast transport to maintain a map of request handles
+// and send response to the indicated one
+// (will have a bit more overhead but required for the leader based replication
+// schemes)
+#define MULTIPLE_ACTIVE_REQUESTS false
+
 /*
  * Class FastTransport implements a multi-threaded DPDK
  * transport layer based on eRPC which works with
@@ -124,6 +130,10 @@ class AppContext {
 
         struct {
             // current req_handle
+#if MULTIPLE_ACTIVE_REQUESTS
+            boost::unordered_map<uint64_t, erpc::ReqHandle *> req_handles;
+            uint64_t req_handle_idx = 0;
+#endif
             erpc::ReqHandle *req_handle;
             std::vector<long> latency_get;
             std::vector<long> latency_prepare;
@@ -155,11 +165,14 @@ public:
     bool CancelTimer(int id) override;
     void CancelAllTimers() override;
 
-    bool SendRequestToReplica(TransportReceiver *src, uint8_t reqType, uint8_t replicaIdx, uint8_t threadIdx, size_t msgLen) override;
-    bool SendRequestToAll(TransportReceiver *src, uint8_t reqType, uint8_t threadIdx, size_t msgLen) override;
+    bool SendRequestToReplica(TransportReceiver *src, uint8_t reqType, uint8_t replicaIdx, uint8_t dstRpcIdx, size_t msgLen) override;
+    bool SendRequestToAll(TransportReceiver *src, uint8_t reqType, uint8_t dstRpcIdx, size_t msgLen) override;
+    bool SendResponse(uint64_t reqHandleIdx, size_t msgLen) override;
     bool SendResponse(size_t msgLen) override;
-
     char *GetRequestBuf() override;
+    int GetSession(TransportReceiver *src, uint8_t replicaIdx, uint8_t dstRpcIdx) override;
+
+    uint8_t GetID() override { return id; };
 private:
     // Configuration of the replicas
     transport::Configuration config;
@@ -201,8 +214,6 @@ private:
     timers_map timers;
     std::mutex timers_lock;
 
-    int GetSession(TransportReceiver *src, uint8_t replicaIdx, uint8_t coreIdx);
-    bool SendMessageInternal(TransportReceiver *src, int replicaIdx, const Message &m);
     void OnTimer(FastTransportTimerInfo *info);
     static void SocketCallback(evutil_socket_t fd, short what, void *arg);
     static void TimerCallback(evutil_socket_t fd, short what, void *arg);

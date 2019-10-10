@@ -71,9 +71,6 @@ public:
     std::vector<int> Stats();
 
 private:
-    // Transport shared by multiple client fibers.
-    Transport *transport;
-
     // Unique ID for this client.
     uint64_t client_id;
 
@@ -84,9 +81,6 @@ private:
     uint8_t preferred_thread_id;
     uint8_t preferred_read_thread_id;
 
-    // Number of cores/threads on the server.
-    int nsthreads;
-
     // Number of shards.
     uint64_t nshards;
 
@@ -95,12 +89,6 @@ private:
 
     // List of participants in the ongoing transaction.
     std::set<int> participants;
-
-    // Is the database replicated.
-    const bool replicated;
-
-    // Is the database sharded.
-    const bool twopc;
 
     // Shard client and corresponding Buffering client for each shard.
     std::vector<std::unique_ptr<TxnClient>> shard_clients;

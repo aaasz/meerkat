@@ -31,9 +31,8 @@
 #ifndef _LIB_TRANSPORT_H_
 #define _LIB_TRANSPORT_H_
 
+#include "lib/message.h"
 #include "lib/configuration.h"
-
-#include <google/protobuf/message.h>
 #include <functional>
 
 #define CLIENT_NETWORK_DELAY 0
@@ -43,11 +42,13 @@
 class TransportReceiver
 {
 public:
-    typedef ::google::protobuf::Message Message;
-    
-
     virtual ~TransportReceiver();
-    virtual void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) = 0;
+    virtual void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) {
+        PPanic("Not implemented; did you forget to set the MULTIPLE_ACTIVE_REQUESTS flag accordingly?");
+    };
+    virtual void ReceiveRequest(uint64_t reqHandleIdx, uint8_t reqType, char *reqBuf, char *respBuf) {
+        PPanic("Not implemented; did you forget to set the MULTIPLE_ACTIVE_REQUESTS flag accordingly?");
+    };
     virtual void ReceiveResponse(uint8_t reqType, char *respBuf) = 0;
     virtual bool Blocked() = 0;
 };
@@ -56,13 +57,12 @@ typedef std::function<void (void)> timer_callback_t;
 
 class Transport
 {
-protected:
-    typedef ::google::protobuf::Message Message;
 public:
     virtual ~Transport() {}
     virtual void Register(TransportReceiver *receiver,
                           int replicaIdx) = 0;
     virtual bool SendResponse(size_t msgLen) = 0;
+    virtual bool SendResponse(uint64_t bufIdx, size_t msgLen) = 0;
     virtual bool SendRequestToReplica(TransportReceiver *src, uint8_t reqType, uint8_t replicaIdx, uint8_t coreIdx, size_t msgLen) = 0;
     virtual bool SendRequestToAll(TransportReceiver *src, uint8_t reqType, uint8_t coreIdx, size_t msgLen) = 0;
     virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
@@ -70,6 +70,9 @@ public:
     virtual void CancelAllTimers() = 0;
 
     virtual char *GetRequestBuf() = 0;
+    virtual int GetSession(TransportReceiver *src, uint8_t replicaIdx, uint8_t dstRpcIdx) = 0;
+
+    virtual uint8_t GetID() = 0;
 };
 
 class Timeout

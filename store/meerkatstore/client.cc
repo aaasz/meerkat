@@ -48,9 +48,9 @@ Client::Client(const transport::Configuration &config,
                 uint8_t preferred_thread_id,
                 uint8_t preferred_read_thread_id,
                 bool twopc, bool replicated, TrueTime timeServer)
-    : transport(transport), t_id(0), preferred_thread_id(preferred_thread_id),
+    : t_id(0), preferred_thread_id(preferred_thread_id),
       preferred_read_thread_id(preferred_read_thread_id),
-      nsthreads(nsthreads), nshards(nShards), replicated(replicated), twopc(twopc),
+      nshards(nShards),
       timeServer(timeServer), core_dis(0, nsthreads -1)
 {
     // Initialize all state here;

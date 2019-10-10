@@ -72,6 +72,9 @@ struct RecordEntry
     Transaction txn;
     // Commit timestamp
     Timestamp ts;
+    // to know to which client request we need to reply
+    uint64_t reqHandleIdx;
+    char *respBuf;
     // replication state of the latest request (FINALIZED if we know
     // that at least a majority agree on accepting the operation, and,
     // if it's the case, its result)
