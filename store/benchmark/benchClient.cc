@@ -9,6 +9,7 @@
 #include "store/common/truetime.h"
 #include "store/common/frontend/client.h"
 #include "store/meerkatstore/client.h"
+#include "store/silostore/client.h"
 #include "store/common/flags.h"
 
 #include <boost/fiber/all.hpp>
@@ -79,6 +80,16 @@ void client_fiber_func(int thread_id,
     //fprintf(stderr, "global_thread_id = %d; localReplica = %d\n", global_thread_id, localReplica);
     if (FLAGS_mode == "meerkatstore") {
         client = new meerkatstore::Client(config,
+                                            transport,
+                                            FLAGS_numServerThreads,
+                                            FLAGS_numShards,
+                                            localReplica,
+                                            preferred_thread_id,
+                                            local_preferred_read_thread_id,
+                                            twopc, replicated,
+                                            TrueTime(FLAGS_skew, FLAGS_error));
+    } else if (FLAGS_mode == "silostore") {
+        client = new silostore::Client(config,
                                             transport,
                                             FLAGS_numServerThreads,
                                             FLAGS_numShards,

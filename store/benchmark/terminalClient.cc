@@ -12,6 +12,9 @@
 #include "store/common/frontend/client.h"
 #include "store/common/truetime.h"
 #include "store/meerkatstore/client.h"
+#include "store/silostore/client.h"
+#include "lib/fasttransport.h"
+#include "store/common/flags.h"
 
 using namespace std;
 
@@ -19,12 +22,13 @@ namespace {
 
 std::string Usage() {
     return "Usage: ./terminalClient\n"
-           "  -c <config path prefix>\n"
-           "  -N <num shards>\n"
-           "  -m <drsilo|mtapir>\n"
-           "  -r <closest replica index>\n"
-           "  -t <num_server_threads>\n"
-           "  -R <vr|ir>";
+           "  -configFile <config path prefix>\n"
+           "  -numShards <num shards>\n"
+           "  -mode <meerkatstore|silostore>\n"
+           "  -closestReplica <closest replica index>\n"
+           "  -numServerThreads <num_server_threads>\n"
+           "  -ip <client_ip_address>"
+           "  -physPort <NIC port>";
 }
 
 }  // namespace
@@ -32,104 +36,50 @@ std::string Usage() {
 int
 main(int argc, char **argv)
 {
-    const char *configPath = NULL;
-    const char *replScheme = NULL;
-    int nShards = 1, nsthreads = 1;
-    int closestReplica = -1; // Closest replica id.
-
-    // TODO(mwhittaker): Make command line flags.
-    bool twopc = false;
-    bool replicated = true;
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     Client *client;
-    enum {
-        MODE_UNKNOWN,
-        MODE_MTAPIR,
-        MODE_DRSILO
-    } mode = MODE_UNKNOWN;
 
-    int opt;
-    while ((opt = getopt(argc, argv, "c:N:m:r:R:t:")) != -1) {
-        switch (opt) {
-        case 'c': // Configuration path
-        {
-            configPath = optarg;
-            break;
-        }
-
-        case 'N': // Number of shards.
-        {
-            char *strtolPtr;
-            nShards = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (nShards <= 0)) {
-                fprintf(stderr, "option -N requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 't': // Number of shards.
-        {
-            char *strtolPtr;
-            nsthreads = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (nShards <= 0)) {
-                fprintf(stderr, "option -t requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'm': // Mode to run in [occ/lock/...]
-        {
-            if (strcasecmp(optarg, "mtapir") == 0) {
-                mode = MODE_MTAPIR;
-            } else if (strcasecmp(optarg, "drsilo") == 0) {
-                mode = MODE_DRSILO;
-            } else {
-                fprintf(stderr, "unknown mode '%s'\n", optarg);
-                exit(0);
-            }
-            break;
-        }
-
-        case 'r':
-        {
-            char *strtolPtr;
-            closestReplica = strtod(optarg, &strtolPtr);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr,
-                        "option -r requires a numeric arg\n");
-            }
-            break;
-        }
-
-        case 'R': // Preferred replication scheme.
-        {
-            replScheme = optarg;
-            break;
-        }
-
-        default:
-            fprintf(stderr, "Unknown argument %s\n", argv[optind]);
-            break;
-        }
+    // Load configuration
+    std::ifstream configStream(FLAGS_configFile);
+    if (configStream.fail()) {
+        fprintf(stderr, "unable to read configuration file: %s\n",
+                FLAGS_configFile.c_str());
     }
+    transport::Configuration config(configStream);
 
-    if (mode == MODE_MTAPIR) {
-        // client = new multitapirstore::Client(configPath, nsthreads, nShards,
-        //                                      closestReplica,
-        //                                      twopc, replicated,
-        //                                      TrueTime(0, 0), replScheme);
-    } else if (mode == MODE_DRSILO) {
-        // TODO(mwhittaker): Make these command line flags.
-        // client = new silostore::Client(configPath, nsthreads, nShards,
-        //                                closestReplica,
-        //                                twopc, replicated,
-        //                                TrueTime(0, 0), replScheme);
+    // Create the transport
+    FastTransport *transport = new FastTransport(config,
+                                                FLAGS_ip,
+                                                FLAGS_numServerThreads,
+                                                0,
+                                                FLAGS_physPort,
+                                                0,
+                                                0);
+
+    // Create client store object
+    if (FLAGS_mode == "meerkatstore") {
+        client = new meerkatstore::Client(config,
+                                            transport,
+                                            FLAGS_numServerThreads,
+                                            FLAGS_numShards,
+                                            FLAGS_closestReplica,
+                                            0,
+                                            0,
+                                            false, true,
+                                            TrueTime(FLAGS_skew, FLAGS_error));
+    } else if (FLAGS_mode == "silostore") {
+        client = new silostore::Client(config,
+                                            transport,
+                                            FLAGS_numServerThreads,
+                                            FLAGS_numShards,
+                                            FLAGS_closestReplica,
+                                            0,
+                                            0,
+                                            false, true,
+                                            TrueTime(FLAGS_skew, FLAGS_error));
     } else {
-        fprintf(stderr, "option -m is required\n");
-        std::cerr << Usage() << std::endl;
+        fprintf(stderr, "option --mode is required\n");
         exit(0);
     }
 
