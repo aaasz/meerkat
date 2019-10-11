@@ -1,6 +1,11 @@
 #ifndef _TAPIRIR_MESSAGES_H_
 #define _TAPIRIR_MESSAGES_H_
 
+#include <functional>
+#include <utility>
+
+#include <boost/functional/hash.hpp>
+
 namespace replication {
 namespace tapirir {
 
@@ -87,5 +92,34 @@ struct finalize_consensus_response_t {
 } // namespace tapirir
 } // namespace replication
 
+
+namespace boost {
+
+template <>
+struct hash<replication::tapirir::operation_id_t>
+{
+    size_t operator()(
+            const replication::tapirir::operation_id_t operation_id) const {
+        return boost::hash<std::pair<uint64_t, uint64_t>>()({
+            operation_id.client_id, operation_id.client_request_number
+        });
+    }
+};
+
+} // namespace boost
+
+namespace std {
+
+template <>
+struct equal_to<replication::tapirir::operation_id_t>
+{
+    size_t operator()(const replication::tapirir::operation_id_t lhs,
+                      const replication::tapirir::operation_id_t rhs) const {
+        return lhs.client_id == rhs.client_id &&
+               lhs.client_request_number == rhs.client_request_number;
+    }
+};
+
+} // namespace std
 
 #endif  /* _TAPIRIR_MESSAGES_H_ */
