@@ -64,7 +64,7 @@
 #define MULTIPLE_ACTIVE_REQUESTS false
 
 /*
- * Class FastTransport implements a multi-threaded DPDK
+ * Class FastTransport implements a multi-threaded
  * transport layer based on eRPC which works with
  * a client - server configuration, where the server
  * may have multiple replicas.
@@ -169,7 +169,7 @@ public:
     bool SendRequestToAll(TransportReceiver *src, uint8_t reqType, uint8_t dstRpcIdx, size_t msgLen) override;
     bool SendResponse(uint64_t reqHandleIdx, size_t msgLen) override;
     bool SendResponse(size_t msgLen) override;
-    char *GetRequestBuf() override;
+    char *GetRequestBuf(size_t reqLen, size_t respLen) override;
     int GetSession(TransportReceiver *src, uint8_t replicaIdx, uint8_t dstRpcIdx) override;
 
     uint8_t GetID() override { return id; };

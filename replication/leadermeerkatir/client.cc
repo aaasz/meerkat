@@ -84,7 +84,15 @@ void Client::Invoke(uint64_t txn_nr,
     pendingReqs[reqId] = req;
 
     Debug("Invoke for req_nr = %lu", reqId);
-    auto *reqBuf = reinterpret_cast<request_header_t *>(transport->GetRequestBuf());
+    size_t txnLen = txn.getReadSet().size() * sizeof(read_t) +
+                    txn.getWriteSet().size() * sizeof(write_t);
+    size_t reqLen = sizeof(request_header_t) + txnLen;
+    auto *reqBuf = reinterpret_cast<request_header_t *>(
+      transport->GetRequestBuf(
+        reqLen,
+        sizeof(request_response_t)
+      )
+    );
     reqBuf->req_nr = reqId;
     reqBuf->txn_nr = txn_nr;
     reqBuf->client_id = clientid;
@@ -97,9 +105,7 @@ void Client::Invoke(uint64_t txn_nr,
     // TODO: Send to the leader; for now just assume replica 0 is the leader
     transport->SendRequestToReplica(this,
                                 clientReqType, 0,
-                                core_id, sizeof(request_header_t) +
-                                    reqBuf->nr_reads * sizeof(read_t) +
-                                    reqBuf->nr_writes * sizeof(write_t));
+                                core_id, reqLen);
 }
 
 void Client::InvokeUnlogged(uint64_t txn_nr,
@@ -128,7 +134,12 @@ void Client::InvokeUnlogged(uint64_t txn_nr,
     // function does not return errors)
     // TODO: deal with timeouts?
     pendingUnloggedReqs[reqId] = req;
-    auto *reqBuf = reinterpret_cast<unlogged_request_t *>(transport->GetRequestBuf());
+    auto *reqBuf = reinterpret_cast<unlogged_request_t *>(
+      transport->GetRequestBuf(
+        sizeof(unlogged_request_t),
+        sizeof(unlogged_response_t)
+      )
+    );
     reqBuf->req_nr = reqId;
     memcpy(reqBuf->key, request.c_str(), request.size());
     blocked = true;

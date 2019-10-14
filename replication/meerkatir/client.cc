@@ -86,7 +86,12 @@ void Client::InvokeInconsistent(uint64_t txn_nr,
     // Bump the request ID
     uint64_t reqId = ++lastReqId;
 
-    auto *reqBuf = reinterpret_cast<inconsistent_request_t *>(transport->GetRequestBuf());
+    auto *reqBuf = reinterpret_cast<inconsistent_request_t *>(
+      transport->GetRequestBuf(
+        sizeof(inconsistent_request_t),
+        sizeof(inconsistent_response_t)
+      )
+    );
     reqBuf->req_nr = reqId;
     reqBuf->txn_nr = txn_nr;
     reqBuf->client_id = clientid;
@@ -130,7 +135,15 @@ void Client::InvokeConsensus(uint64_t txn_nr,
     // TODO: how do we deal with timeouts? (do we need to patch eRPC?)
     //req->transition_to_slow_path_timer->Start();
     //SendConsensus(req);
-    auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
+    size_t txnLen = txn.getReadSet().size() * sizeof(read_t) +
+                    txn.getWriteSet().size() * sizeof(write_t);
+    size_t reqLen = sizeof(consensus_request_header_t) + txnLen;
+    auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(
+      transport->GetRequestBuf(
+        reqLen,
+        sizeof(consensus_response_t)
+      )
+    );
     reqBuf->req_nr = reqId;
     reqBuf->txn_nr = txn_nr;
     reqBuf->id = timestamp.getID();
@@ -143,9 +156,7 @@ void Client::InvokeConsensus(uint64_t txn_nr,
     blocked = true;
     transport->SendRequestToAll(this,
                                 consensusReqType,
-                                core_id, sizeof(consensus_request_header_t) +
-                                    reqBuf->nr_reads * sizeof(read_t) +
-                                    reqBuf->nr_writes * sizeof(write_t));
+                                core_id, reqLen);
 }
 
 void Client::InvokeUnlogged(uint64_t txn_nr,
@@ -174,7 +185,12 @@ void Client::InvokeUnlogged(uint64_t txn_nr,
     // function does not return errors)
     // TODO: deal with timeouts?
     pendingUnloggedReqs[reqId] = req;
-    auto *reqBuf = reinterpret_cast<unlogged_request_t *>(transport->GetRequestBuf());
+    auto *reqBuf = reinterpret_cast<unlogged_request_t *>(
+      transport->GetRequestBuf(
+        sizeof(unlogged_request_t),
+        sizeof(unlogged_response_t)
+      )
+    );
     reqBuf->req_nr = reqId;
     memcpy(reqBuf->key, request.c_str(), request.size());
     blocked = true;
@@ -184,18 +200,6 @@ void Client::InvokeUnlogged(uint64_t txn_nr,
                                     sizeof(unlogged_request_t));
 }
 
-void Client::ResendConsensusRequest(const uint64_t reqId) {
-    Warning("Client timeout; resending consensus request: %lu", reqId);
-    auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
-    // reqBuf must already have all field filled in
-        // TODO: send to all replicas
-    transport->SendRequestToReplica(this,
-                                    consensusReqType,
-                                    0, 0,
-                                    sizeof(consensus_request_header_t) +
-                                        reqBuf->nr_reads * sizeof(read_t) +
-                                        reqBuf->nr_writes * sizeof(write_t));
-}
 
 // void IRClient::TransitionToConsensusSlowPath(const uint64_t reqId) {
 //     Warning("Client timeout; taking consensus slow path: reqId=%lu", reqId);
@@ -255,7 +259,12 @@ void Client::HandleSlowPathConsensus(
     //    }));
 
     // Send finalize message.
-    auto *reqBuf = reinterpret_cast<finalize_consensus_request_t *>(transport->GetRequestBuf());
+    auto *reqBuf = reinterpret_cast<finalize_consensus_request_t *>(
+      transport->GetRequestBuf(
+        sizeof(finalize_consensus_request_t),
+        sizeof(finalize_consensus_response_t)
+      )
+    );
     reqBuf->req_nr = req_nr;
     reqBuf->client_id = clientid;
     reqBuf->status = req->decidedStatus;
@@ -319,30 +328,6 @@ void Client::HandleFastPathConsensus(
     //    req->transition_to_slow_path_timer.reset();
     //}
     HandleSlowPathConsensus(req_nr, msgs, false, req);
-}
-
-void Client::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isConsensus) {
-    if (pendingReqs.find(req_nr) == pendingReqs.end()) {
-        Warning("Received resend request when no request was pending");
-        return;
-    }
-
-    if (isConsensus) {
-        Warning("Client timeout; resending finalize consensus request: %lu", req_nr);
-
-        PendingConsensusRequest *req = static_cast<PendingConsensusRequest *>(pendingReqs[req_nr]);
-        ASSERT(req != NULL);
-
-        // TODO: the reqBuf should already have the necessary information
-        // (of the last request)
-        //req->timer->Reset();
-        transport->SendRequestToAll(this,
-                                    finalizeConsensusReqType,
-                                    req->core_id, sizeof(finalize_consensus_request_t));
-    } else {
-    	// aaasz: We don't need this anymore -- we only finalize consensus operations
-	    Panic("Not implemented!");
-    }
 }
 
 void Client::ReceiveResponse(uint8_t reqType, char *respBuf) {

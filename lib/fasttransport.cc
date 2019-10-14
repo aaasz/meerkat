@@ -176,11 +176,15 @@ void FastTransport::Register(TransportReceiver *receiver, int replicaIdx) {
     this->replicaIdx = replicaIdx;
 }
 
-inline char *FastTransport::GetRequestBuf() {
+inline char *FastTransport::GetRequestBuf(size_t reqLen, size_t respLen) {
     // create a new request tag
+    if (reqLen == 0)
+        reqLen = c->rpc->get_max_data_per_pkt();
+    if (respLen == 0)
+        respLen = c->rpc->get_max_data_per_pkt();
     c->client.crt_req_tag = c->client.req_tag_pool.alloc();
-    c->client.crt_req_tag->req_msgbuf = c->rpc->alloc_msg_buffer_or_die(c->rpc->get_max_data_per_pkt());
-    c->client.crt_req_tag->resp_msgbuf = c->rpc->alloc_msg_buffer_or_die(c->rpc->get_max_data_per_pkt());
+    c->client.crt_req_tag->req_msgbuf = c->rpc->alloc_msg_buffer_or_die(reqLen);
+    c->client.crt_req_tag->resp_msgbuf = c->rpc->alloc_msg_buffer_or_die(respLen);
     return reinterpret_cast<char *>(c->client.crt_req_tag->req_msgbuf.buf);
 }
 

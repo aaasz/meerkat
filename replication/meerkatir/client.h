@@ -264,9 +264,6 @@ protected:
         const std::map<int, consensus_response_t> &msgs,
         PendingConsensusRequest *req);
 
-    void ResendConsensusRequest(const uint64_t reqId);
-    void ResendFinalizeConsensusRequest(const uint64_t reqId, bool isConsensus);
-
     void UnloggedRequestTimeoutCallback(const uint64_t reqId);
 
     // new handlers

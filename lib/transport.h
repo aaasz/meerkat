@@ -69,7 +69,7 @@ public:
     virtual bool CancelTimer(int id) = 0;
     virtual void CancelAllTimers() = 0;
 
-    virtual char *GetRequestBuf() = 0;
+    virtual char *GetRequestBuf(size_t reqLen, size_t respLen) = 0;
     virtual int GetSession(TransportReceiver *src, uint8_t replicaIdx, uint8_t dstRpcIdx) = 0;
 
     virtual uint8_t GetID() = 0;

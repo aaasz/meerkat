@@ -168,21 +168,26 @@ void IRReplica::HandleRequest(uint64_t reqHandleIdx, char *reqBuf, char *respBuf
             resp->req_nr = req->req_nr;
             resp->view = this->view;
             resp->status = entry->txn_status == PREPARED_OK ? REPLY_OK : REPLY_FAIL;
-            transport->SendResponse(sizeof(request_response_t));
+            transport->SendResponse(reqHandleIdx, sizeof(request_response_t));
         } else {
             // Save the request handle index and the response buffer
             entry->reqHandleIdx = reqHandleIdx;
             entry->respBuf = respBuf;
 
             // Send prepare record to the other replicas
-            auto *prepareReq = reinterpret_cast<prepare_request_header_t *>(transport->GetRequestBuf());
+            size_t txnLen = req->nr_reads * sizeof(read_t) + req->nr_writes * sizeof(write_t);
+            size_t reqLen = sizeof(prepare_request_header_t) + txnLen;
+            auto *prepareReq = reinterpret_cast<prepare_request_header_t *>(
+              transport->GetRequestBuf(
+                reqLen,
+                sizeof(prepare_response_t)
+              )
+            );
             prepareReq->request_header = *req;
             prepareReq->view = this->view;
             prepareReq->timestamp = entry->ts.getTimestamp();
             prepareReq->id = entry->ts.getID();
-            size_t txnLen = req->nr_reads * sizeof(read_t) + req->nr_writes * sizeof(write_t);
             memcpy(prepareReq + 1, req + 1, txnLen);
-            size_t reqLen = sizeof(prepare_request_header_t) + txnLen;
             transport->SendRequestToAll(this, prepareReqType, transport->GetID(), reqLen);
         }
     }
@@ -365,12 +370,17 @@ void IRReplica::HandlePrepareReply(char *respBuf) {
          * This can be done asynchronously, so it really ought to be
          * piggybacked on the next PREPARE or something.
          */
-        auto *commitReq = reinterpret_cast<commit_request_t *>(transport->GetRequestBuf());
+        auto *commitReq = reinterpret_cast<commit_request_t *>(
+          transport->GetRequestBuf(
+            sizeof(commit_request_t),
+            sizeof(commit_response_t)
+          )
+        );
         commitReq->client_id = resp->client_id;
         commitReq->txn_nr = resp->txn_nr;
         commitReq->view = this->view;
         transport->SendRequestToAll(this, commitReqType, transport->GetID(), sizeof(commit_request_t));
-        
+
         /* Send reply to client */
         auto *clientResp = reinterpret_cast<request_response_t *>(entry->respBuf);
         clientResp->req_nr = resp->req_nr;

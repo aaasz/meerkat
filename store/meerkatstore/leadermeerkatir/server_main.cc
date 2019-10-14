@@ -70,10 +70,10 @@ void server_thread_func(meerkatstore::leadermeerkatir::Server *server,
     replication::leadermeerkatir::IRReplica *irReplica = new replication::leadermeerkatir::IRReplica(
       config, FLAGS_replicaIndex,
       (FastTransport *)transport,
-      (meerkatstore::leadermeerkatir::Server *)server);
+      server);
 
     last_irReplica = irReplica;
-    global_server = (meerkatstore::leadermeerkatir::Server *)server;
+    global_server = server;
 
     transport->Run();
 }
