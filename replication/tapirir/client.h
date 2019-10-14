@@ -77,8 +77,6 @@ using decide_t = std::function<int(const result_set_t &)>;
 using unlogged_continuation_t = std::function<void(char *respBuf)>;
 using inconsistent_continuation_t = std::function<void()>;
 using consensus_continuation_t = std::function<void(int decidedStatus)>;
-using continuation_t =
-    std::function<void(const string &request, const string &reply)>;
 using error_continuation_t =
     std::function<void(const string &request, ErrorCode err)>;
 
@@ -97,21 +95,18 @@ public:
     virtual void InvokeUnlogged(
         uint8_t core_id,
         int replica_index,
-        operation_id_t operation_id,
         const string &key,
         unlogged_continuation_t continuation,
         error_continuation_t error_continuation = nullptr,
         uint32_t timeout = 1000 /* milliseconds */);
     virtual void InvokeInconsistent(
         uint8_t core_id,
-        operation_id_t operation_id,
         uint64_t transaction_number,
         bool commit,
         inconsistent_continuation_t continuation,
         error_continuation_t error_continuation = nullptr);
     virtual void InvokeConsensus(
         uint8_t core_id,
-        operation_id_t operation_id,
         uint64_t transaction_number,
         const Transaction &txn,
         const Timestamp &timestamp,

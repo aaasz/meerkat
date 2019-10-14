@@ -65,7 +65,6 @@ IRClient::IRClient(const transport::Configuration &config,
 void IRClient::InvokeUnlogged(
         uint8_t core_id,
         int replica_index,
-        operation_id_t operation_id,
         const string &key,
         unlogged_continuation_t continuation,
         error_continuation_t error_continuation,
@@ -94,7 +93,6 @@ void IRClient::InvokeUnlogged(
 
 void IRClient::InvokeInconsistent(
         uint8_t core_id,
-        operation_id_t operation_id,
         uint64_t transaction_number,
         bool commit,
         inconsistent_continuation_t continuation,
@@ -120,7 +118,6 @@ void IRClient::InvokeInconsistent(
 
 void IRClient::InvokeConsensus(
         uint8_t core_id,
-        operation_id_t operation_id,
         uint64_t transaction_number,
         const Transaction &txn,
         const Timestamp &timestamp,
