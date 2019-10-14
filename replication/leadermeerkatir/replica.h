@@ -57,11 +57,11 @@ enum ReplicaStatus {
     STATUS_RECOVERING
 };
 
-class IRAppReplica
+class AppReplica
 {
 public:
-    IRAppReplica() { };
-    virtual ~IRAppReplica() { };
+    AppReplica() { };
+    virtual ~AppReplica() { };
 
     // Invoke callback on the leader, with the option to replicate on success
     virtual void LeaderUpcall(txnid_t txn_id,
@@ -77,13 +77,13 @@ public:
 };
 
 
-class IRReplica : public TransportReceiver
+class Replica : public TransportReceiver
 {
 public:
-    IRReplica(transport::Configuration config, int myIdx,
+    Replica(transport::Configuration config, int myIdx,
               Transport *transport, //unsigned int batchSize,
-              IRAppReplica *app);
-    ~IRReplica();
+              AppReplica *app);
+    ~Replica();
 
     // Message handlers.
     void ReceiveRequest(uint64_t reqHandleIdx, uint8_t reqType, char *reqBuf, char *respBuf) override;
@@ -97,7 +97,7 @@ private:
     transport::Configuration config;
     int myIdx; // Replica index into config.
     Transport *transport;
-    IRAppReplica *app;
+    AppReplica *app;
     ReplicaStatus status;
 
     // Transactions are fully partitioned across cores => no synchronization needed;

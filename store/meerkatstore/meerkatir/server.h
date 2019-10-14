@@ -45,7 +45,7 @@
 namespace meerkatstore {
 namespace meerkatir {
 
-class Server : public replication::meerkatir::IRAppReplica
+class Server : public replication::meerkatir::AppReplica
 {
 public:
     Server()

@@ -46,7 +46,7 @@
 namespace meerkatstore {
 namespace leadermeerkatir {
 
-class Server : public replication::leadermeerkatir::IRAppReplica {
+class Server : public replication::leadermeerkatir::AppReplica {
 public:
     Server()
         : twopc(twopc),

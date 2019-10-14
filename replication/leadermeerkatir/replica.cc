@@ -46,9 +46,9 @@ namespace leadermeerkatir {
 
 using namespace std;
 
-IRReplica::IRReplica(transport::Configuration config, int myIdx,
+Replica::Replica(transport::Configuration config, int myIdx,
                      Transport *transport, //unsigned int batchSize,
-                     IRAppReplica *app)
+                     AppReplica *app)
     : config(std::move(config)), myIdx(myIdx), transport(transport), app(app)
 {
     this->status = STATUS_NORMAL;
@@ -68,13 +68,13 @@ IRReplica::IRReplica(transport::Configuration config, int myIdx,
     }
 }
 
-IRReplica::~IRReplica() {}
+Replica::~Replica() {}
 
-bool IRReplica::AmLeader() const {
+bool Replica::AmLeader() const {
     return (config.GetLeaderIndex(view) == myIdx);
 }
 
-void IRReplica::ReceiveRequest(uint64_t reqHandleIdx, uint8_t reqType, char *reqBuf, char *respBuf) {
+void Replica::ReceiveRequest(uint64_t reqHandleIdx, uint8_t reqType, char *reqBuf, char *respBuf) {
     switch(reqType) {
         case clientReqType:
             HandleRequest(reqHandleIdx, reqBuf, respBuf);
@@ -93,7 +93,7 @@ void IRReplica::ReceiveRequest(uint64_t reqHandleIdx, uint8_t reqType, char *req
     }
 }
 
-void IRReplica::ReceiveResponse(uint8_t reqType, char *respBuf) {
+void Replica::ReceiveResponse(uint8_t reqType, char *respBuf) {
     switch(reqType){
         case prepareReqType:
             HandlePrepareReply(respBuf);
@@ -106,7 +106,7 @@ void IRReplica::ReceiveResponse(uint8_t reqType, char *respBuf) {
     }
 }
 
-void IRReplica::HandleRequest(uint64_t reqHandleIdx, char *reqBuf, char *respBuf) {
+void Replica::HandleRequest(uint64_t reqHandleIdx, char *reqBuf, char *respBuf) {
     viewstamp_t v;
 
     if (status != STATUS_NORMAL) {
@@ -193,14 +193,14 @@ void IRReplica::HandleRequest(uint64_t reqHandleIdx, char *reqBuf, char *respBuf
     }
 }
 
-void IRReplica::HandleUnloggedRequest(uint64_t reqHandleIdx, char *reqBuf, char *respBuf) {
+void Replica::HandleUnloggedRequest(uint64_t reqHandleIdx, char *reqBuf, char *respBuf) {
     // TODO: Ignore requests from the past
     size_t respLen;
     app->UnloggedUpcall(reqBuf, respBuf, respLen);
     transport->SendResponse(reqHandleIdx, respLen);
 }
 
-void IRReplica::HandlePrepare(uint64_t reqHandleIdx, char *reqBuf, char *respBuf) {
+void Replica::HandlePrepare(uint64_t reqHandleIdx, char *reqBuf, char *respBuf) {
     auto *req = reinterpret_cast<prepare_request_header_t *>(reqBuf);
 
     RDebug("[%lu - %lu] Received prepare clientreq_nr %lu:\n",
@@ -250,7 +250,7 @@ void IRReplica::HandlePrepare(uint64_t reqHandleIdx, char *reqBuf, char *respBuf
     transport->SendResponse(reqHandleIdx, sizeof(prepare_response_t));
 }
 
-void IRReplica::HandleCommit(uint64_t reqHandleIdx, char *reqBuf, char *respBuf) {
+void Replica::HandleCommit(uint64_t reqHandleIdx, char *reqBuf, char *respBuf) {
     auto *req = reinterpret_cast<commit_request_t *>(reqBuf);
 
     RDebug("Received COMMIT " FMT_VIEWSTAMP, req->view, req->txn_nr);
@@ -306,7 +306,7 @@ void IRReplica::HandleCommit(uint64_t reqHandleIdx, char *reqBuf, char *respBuf)
 // prepareOK is received. This breaks the case when we have
 // just 1 replica. Yes, there's no point in starting with less than
 // 3 replicas, except for testing reasons.
-void IRReplica::HandlePrepareReply(char *respBuf) {
+void Replica::HandlePrepareReply(char *respBuf) {
     auto *resp = reinterpret_cast<prepare_response_t *>(respBuf);
 
     RDebug("[%lu - %lu] Received prepareResponse \n",
@@ -396,7 +396,7 @@ void IRReplica::HandlePrepareReply(char *respBuf) {
     }
 }
 
-void IRReplica::HandleCommitReply(char *respBuf) {
+void Replica::HandleCommitReply(char *respBuf) {
 }
 
 } // namespace leadermeerkatir

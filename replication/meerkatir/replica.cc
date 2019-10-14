@@ -17,8 +17,8 @@ namespace meerkatir {
 
 using namespace std;
 
-IRReplica::IRReplica(transport::Configuration config, int myIdx,
-                     Transport *transport, IRAppReplica *app)
+Replica::Replica(transport::Configuration config, int myIdx,
+                     Transport *transport, AppReplica *app)
     : config(std::move(config)), myIdx(myIdx), transport(transport), app(app)
 {
     if (transport != NULL) {
@@ -29,9 +29,9 @@ IRReplica::IRReplica(transport::Configuration config, int myIdx,
     }
 }
 
-IRReplica::~IRReplica() { }
+Replica::~Replica() { }
 
-void IRReplica::ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) {
+void Replica::ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) {
     size_t respLen;
     switch(reqType) {
         case unloggedReqType:
@@ -55,12 +55,12 @@ void IRReplica::ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) {
         Warning("Failed to send reply message");
 }
 
-void IRReplica::HandleUnloggedRequest(char *reqBuf, char *respBuf, size_t &respLen) {
+void Replica::HandleUnloggedRequest(char *reqBuf, char *respBuf, size_t &respLen) {
     // ignore requests from the past
     app->UnloggedUpcall(reqBuf, respBuf, respLen);
 }
 
-void IRReplica::HandleInconsistentRequest(char *reqBuf, char *respBuf, size_t &respLen) {
+void Replica::HandleInconsistentRequest(char *reqBuf, char *respBuf, size_t &respLen) {
     auto *req = reinterpret_cast<inconsistent_request_t *>(reqBuf);
 
     Debug("[%lu - %lu] Received inconsistent op nr %lu\n",
@@ -116,7 +116,7 @@ void IRReplica::HandleInconsistentRequest(char *reqBuf, char *respBuf, size_t &r
     record.Remove(txnid);
 }
 
-void IRReplica::HandleConsensusRequest(char *reqBuf, char *respBuf, size_t &respLen) {
+void Replica::HandleConsensusRequest(char *reqBuf, char *respBuf, size_t &respLen) {
     auto *req = reinterpret_cast<consensus_request_header_t *>(reqBuf);
 
     Debug("[%lu - %lu] Received consensus op number %lu:\n",
@@ -181,7 +181,7 @@ void IRReplica::HandleConsensusRequest(char *reqBuf, char *respBuf, size_t &resp
     respLen = sizeof(consensus_response_t);
 }
 
-void IRReplica::HandleFinalizeConsensusRequest(char *reqBuf, char *respBuf, size_t &respLen) {
+void Replica::HandleFinalizeConsensusRequest(char *reqBuf, char *respBuf, size_t &respLen) {
     auto *req = reinterpret_cast<finalize_consensus_request_t *>(reqBuf);
 
     Debug("[%lu - %lu] Received finalize consensus for req %lu",
@@ -229,8 +229,7 @@ void IRReplica::HandleFinalizeConsensusRequest(char *reqBuf, char *respBuf, size
     }
 }
 
-void
-IRReplica::PrintStats() {
+void Replica::PrintStats() {
 }
 
 } // namespace ir

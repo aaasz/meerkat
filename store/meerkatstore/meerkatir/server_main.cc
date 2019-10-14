@@ -46,7 +46,7 @@ using namespace std;
 
 // TODO: better way to print stats
 static FastTransport *last_transport;
-static replication::meerkatir::IRReplica *last_irReplica;
+static replication::meerkatir::Replica *last_replica;
 static meerkatstore::meerkatir::Server *global_server;
 
 void server_thread_func(meerkatstore::meerkatir::Server *server,
@@ -67,12 +67,12 @@ void server_thread_func(meerkatstore::meerkatir::Server *server,
                                                 thread_id);
     last_transport = transport;
 
-    replication::meerkatir::IRReplica *irReplica = new replication::meerkatir::IRReplica(
+    replication::meerkatir::Replica *replica = new replication::meerkatir::Replica(
       config, FLAGS_replicaIndex,
       (FastTransport *)transport,
       server);
 
-    last_irReplica = irReplica;
+    last_replica = replica;
     global_server = server;
 
     transport->Run();
@@ -80,7 +80,7 @@ void server_thread_func(meerkatstore::meerkatir::Server *server,
 
 void signal_handler( int signal_num ) {
    last_transport->Stop();
-   last_irReplica->PrintStats();
+   last_replica->PrintStats();
    global_server->PrintStats();
 
    // terminate program
