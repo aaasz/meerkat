@@ -11,8 +11,8 @@
 
 #include "store/common/frontend/client.h"
 #include "store/common/truetime.h"
-#include "store/meerkatstore/client.h"
-#include "store/silostore/client.h"
+#include "store/meerkatstore/meerkatir/client.h"
+#include "store/meerkatstore/leadermeerkatir/client.h"
 #include "lib/fasttransport.h"
 #include "store/common/flags.h"
 
@@ -59,7 +59,7 @@ main(int argc, char **argv)
 
     // Create client store object
     if (FLAGS_mode == "meerkatstore") {
-        client = new meerkatstore::Client(config,
+        client = new meerkatstore::meerkatir::Client(config,
                                             transport,
                                             FLAGS_numServerThreads,
                                             FLAGS_numShards,
@@ -68,8 +68,8 @@ main(int argc, char **argv)
                                             0,
                                             false, true,
                                             TrueTime(FLAGS_skew, FLAGS_error));
-    } else if (FLAGS_mode == "silostore") {
-        client = new silostore::Client(config,
+    } else if (FLAGS_mode == "meerkatstore-leader") {
+        client = new meerkatstore::leadermeerkatir::Client(config,
                                             transport,
                                             FLAGS_numServerThreads,
                                             FLAGS_numShards,

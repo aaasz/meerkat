@@ -69,19 +69,21 @@ using unlogged_continuation_t =
 using error_continuation_t =
     std::function<void(const string &request, ErrorCode err)>;
 
-class IRClient : public TransportReceiver
+class Client : public TransportReceiver
 {
 public:
     static const uint32_t DEFAULT_UNLOGGED_OP_TIMEOUT = 1000; // milliseconds
 
-    IRClient(const transport::Configuration &config,
+    Client(const transport::Configuration &config,
              Transport *transport,
              uint64_t clientid = 0);
-    virtual ~IRClient();
-    virtual void Invoke(uint64_t txn_nr, uint32_t core_id, const Transaction &txn,
+    ~Client();
+    void Invoke(uint64_t txn_nr, uint32_t core_id,
+                        const Timestamp &ts,
+                        const Transaction &txn,
                         continuation_t continuation,
                         error_continuation_t error_continuation = nullptr);
-    virtual void InvokeUnlogged(uint64_t txn_nr, uint32_t core_id, int replicaIdx,
+    void InvokeUnlogged(uint64_t txn_nr, uint32_t core_id, int replicaIdx,
                                 const string &request,
                                 unlogged_continuation_t continuation,
                                 error_continuation_t error_continuation = nullptr,

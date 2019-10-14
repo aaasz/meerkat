@@ -84,6 +84,7 @@ public:
     int Get(txnid_t txn_id, const std::string &key, const Timestamp &timestamp, std::pair<Timestamp, std::string> &value);
     int Prepare(txnid_t txn_id, const Transaction &txn, const Timestamp &timestamp, Timestamp &proposed);
     void Commit(txnid_t txn_id, const Timestamp &timestamp, const Transaction &txn);
+    void ForceCommit(txnid_t txn_id, const Timestamp &timestamp, const Transaction &txn);
     void Abort(txnid_t txn_id, const Transaction &txn = Transaction());
     void Load(const std::string &key, const std::string &value, const Timestamp &timestamp);
 

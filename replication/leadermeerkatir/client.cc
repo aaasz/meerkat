@@ -38,7 +38,7 @@
 namespace replication {
 namespace leadermeerkatir {
 
-IRClient::IRClient(const transport::Configuration &config,
+Client::Client(const transport::Configuration &config,
                    Transport *transport,
                    uint64_t clientid)
     : config(config),
@@ -54,19 +54,20 @@ IRClient::IRClient(const transport::Configuration &config,
         std::mt19937_64 gen(rd());
         std::uniform_int_distribution<uint64_t> dis;
         this->clientid = dis(gen);
-        Debug("IRClient ID: %lu", this->clientid);
+        Debug("replication::leadermeerkatir::Client ID: %lu", this->clientid);
     }
 
     transport->Register(this, -1);
 }
 
-IRClient::~IRClient()
+Client::~Client()
 {
 }
 
 // TODO: intentionally not general enough to eliminate double copying
-void IRClient::Invoke(uint64_t txn_nr,
+void Client::Invoke(uint64_t txn_nr,
                   uint32_t core_id,
+                  const Timestamp &ts,
                   const Transaction &txn,
                   continuation_t continuation,
                   error_continuation_t error_continuation) {
@@ -87,6 +88,8 @@ void IRClient::Invoke(uint64_t txn_nr,
     reqBuf->req_nr = reqId;
     reqBuf->txn_nr = txn_nr;
     reqBuf->client_id = clientid;
+    reqBuf->timestamp = ts.getTimestamp();
+    reqBuf->id = ts.getID();
     reqBuf->nr_reads = txn.getReadSet().size();
     reqBuf->nr_writes = txn.getWriteSet().size();
     txn.serialize(reinterpret_cast<char *>(reqBuf + 1));
@@ -99,7 +102,7 @@ void IRClient::Invoke(uint64_t txn_nr,
                                     reqBuf->nr_writes * sizeof(write_t));
 }
 
-void IRClient::InvokeUnlogged(uint64_t txn_nr,
+void Client::InvokeUnlogged(uint64_t txn_nr,
                           uint32_t core_id,
                           int replicaIdx,
                           const string &request,
@@ -135,7 +138,7 @@ void IRClient::InvokeUnlogged(uint64_t txn_nr,
                                     sizeof(unlogged_request_t));
 }
 
-void IRClient::ReceiveResponse(uint8_t reqType, char *respBuf) {
+void Client::ReceiveResponse(uint8_t reqType, char *respBuf) {
     Debug("[%lu] received response", clientid);
     switch(reqType){
         case clientReqType:
@@ -149,7 +152,7 @@ void IRClient::ReceiveResponse(uint8_t reqType, char *respBuf) {
     }
 }
 
-void IRClient::HandleReply(char *respBuf) {
+void Client::HandleReply(char *respBuf) {
     auto *resp = reinterpret_cast<request_response_t *>(respBuf);
     Debug("Received reply for req_nr = %lu", resp->req_nr);
     auto it = pendingReqs.find(resp->req_nr);
@@ -166,7 +169,7 @@ void IRClient::HandleReply(char *respBuf) {
     blocked = false;
 }
 
-void IRClient::HandleUnloggedReply(char *respBuf) {
+void Client::HandleUnloggedReply(char *respBuf) {
     auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
     auto it = pendingUnloggedReqs.find(resp->req_nr);
     if (it == pendingUnloggedReqs.end()) {

@@ -14,6 +14,8 @@ struct request_header_t {
     uint64_t client_id;
     uint64_t req_nr;
     uint64_t txn_nr;
+    uint64_t timestamp;
+    uint64_t id;
     uint8_t nr_reads;
     uint8_t nr_writes;
 };

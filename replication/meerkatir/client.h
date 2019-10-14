@@ -29,8 +29,8 @@
  *
  **********************************************************************/
 
-#ifndef _IR_CLIENT_H_
-#define _IR_CLIENT_H_
+#ifndef _MEERKATIR_CLIENT_H_
+#define _MEERKATIR_CLIENT_H_
 
 #include "replication/common/quorumset.h"
 #include "lib/fasttransport.h"
@@ -76,15 +76,15 @@ using error_continuation_t =
     std::function<void(const string &request, ErrorCode err)>;
 
 
-class IRClient : public TransportReceiver
+class Client : public TransportReceiver
 {
 public:
     static const uint32_t DEFAULT_UNLOGGED_OP_TIMEOUT = 1000; // milliseconds
 
-    IRClient(const transport::Configuration &config,
+    Client(const transport::Configuration &config,
              Transport *transport,
              uint64_t clientid = 0);
-    virtual ~IRClient();
+    virtual ~Client();
 
     virtual void InvokeUnlogged(
         uint64_t txn_nr,
@@ -279,4 +279,4 @@ protected:
 } // namespace replication::ir
 } // namespace replication
 
-#endif  /* _IR_CLIENT_H_ */
+#endif  /* _MEERKATIR_CLIENT_H_ */

@@ -66,6 +66,7 @@ public:
     {
         std::map<int, MSGTYPE> &vsmessages = messages[vs];
         vsmessages.clear();
+        messages.erase(vs);
     }
 
     int

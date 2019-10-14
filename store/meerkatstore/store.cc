@@ -261,6 +261,19 @@ Store::Commit(txnid_t txn_id, const Timestamp &timestamp, const Transaction &txn
 }
 
 void
+Store::ForceCommit(txnid_t txn_id, const Timestamp &timestamp, const Transaction &txn) {
+    Debug("[%lu - %lu] FORCE_COMMIT r = %lu, w = %lu; timestamp = %lu", txn_id.first, txn_id.second,
+          txn.getReadSet().size(), txn.getWriteSet().size(), timestamp.getTimestamp());
+
+    // TODO: TICTOC like optimization - maintain and update read timestamp
+
+    // insert writes into versioned key-value store
+    for (auto &write : txn.getWriteSet()) {
+        store->Put(write.first, write.second, timestamp);
+    }
+}
+
+void
 Store::Abort(txnid_t txn_id, const Transaction &txn)
 {
     Debug("[%lu - %lu] ABORT r = %lu, w = %lu", txn_id.first, txn_id.second,

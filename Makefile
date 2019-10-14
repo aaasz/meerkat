@@ -150,7 +150,8 @@ include replication/meerkatir/Rules.mk
 include replication/leadermeerkatir/Rules.mk
 include store/common/Rules.mk
 include store/meerkatstore/Rules.mk
-include store/silostore/Rules.mk
+include store/meerkatstore/meerkatir/Rules.mk
+include store/meerkatstore/leadermeerkatir/Rules.mk
 include store/benchmark/Rules.mk
 ##################################################################
 # General rules

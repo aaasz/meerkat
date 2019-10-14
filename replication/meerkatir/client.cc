@@ -44,7 +44,7 @@ namespace meerkatir {
 
 using namespace std;
 
-IRClient::IRClient(const transport::Configuration &config,
+Client::Client(const transport::Configuration &config,
                    Transport *transport,
                    uint64_t clientid)
     : config(config),
@@ -60,13 +60,13 @@ IRClient::IRClient(const transport::Configuration &config,
         std::mt19937_64 gen(rd());
         std::uniform_int_distribution<uint64_t> dis;
         this->clientid = dis(gen);
-        Debug("IRClient ID: %lu", this->clientid);
+        Debug("Client ID: %lu", this->clientid);
     }
 
     transport->Register(this, -1);
 }
 
-IRClient::~IRClient()
+Client::~Client()
 {
     for (auto kv : pendingReqs) {
         delete kv.second;
@@ -75,7 +75,7 @@ IRClient::~IRClient()
 
 // TODO: make this more general -- the replication layer must not do the app
 // message serialization as well
-void IRClient::InvokeInconsistent(uint64_t txn_nr,
+void Client::InvokeInconsistent(uint64_t txn_nr,
                              uint8_t core_id,
                              bool commit,
                              inconsistent_continuation_t continuation,
@@ -97,8 +97,7 @@ void IRClient::InvokeInconsistent(uint64_t txn_nr,
                                 sizeof(inconsistent_request_t));
 }
 
-void
-IRClient::InvokeConsensus(uint64_t txn_nr,
+void Client::InvokeConsensus(uint64_t txn_nr,
                           uint8_t core_id,
                           const Transaction &txn,
                           const Timestamp &timestamp,
@@ -149,7 +148,7 @@ IRClient::InvokeConsensus(uint64_t txn_nr,
                                     reqBuf->nr_writes * sizeof(write_t));
 }
 
-void IRClient::InvokeUnlogged(uint64_t txn_nr,
+void Client::InvokeUnlogged(uint64_t txn_nr,
                          uint8_t core_id,
                          int replicaIdx,
                          const string &request,
@@ -185,7 +184,7 @@ void IRClient::InvokeUnlogged(uint64_t txn_nr,
                                     sizeof(unlogged_request_t));
 }
 
-void IRClient::ResendConsensusRequest(const uint64_t reqId) {
+void Client::ResendConsensusRequest(const uint64_t reqId) {
     Warning("Client timeout; resending consensus request: %lu", reqId);
     auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(transport->GetRequestBuf());
     // reqBuf must already have all field filled in
@@ -219,7 +218,7 @@ void IRClient::ResendConsensusRequest(const uint64_t reqId) {
 //     }
 // }
 
-void IRClient::HandleSlowPathConsensus(
+void Client::HandleSlowPathConsensus(
             const uint64_t req_nr,
             const std::map<int, consensus_response_t> &msgs,
             const bool finalized_result_found,
@@ -270,7 +269,7 @@ void IRClient::HandleSlowPathConsensus(
                                 sizeof(finalize_consensus_request_t));
 }
 
-void IRClient::HandleFastPathConsensus(
+void Client::HandleFastPathConsensus(
             const uint64_t req_nr,
             const std::map<int, consensus_response_t> &msgs,
             PendingConsensusRequest *req) {
@@ -322,7 +321,7 @@ void IRClient::HandleFastPathConsensus(
     HandleSlowPathConsensus(req_nr, msgs, false, req);
 }
 
-void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isConsensus) {
+void Client::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isConsensus) {
     if (pendingReqs.find(req_nr) == pendingReqs.end()) {
         Warning("Received resend request when no request was pending");
         return;
@@ -346,7 +345,7 @@ void IRClient::ResendFinalizeConsensusRequest(const uint64_t req_nr, bool isCons
     }
 }
 
-void IRClient::ReceiveResponse(uint8_t reqType, char *respBuf) {
+void Client::ReceiveResponse(uint8_t reqType, char *respBuf) {
     Debug("[%lu] received response", clientid);
     switch(reqType){
         case unloggedReqType:
@@ -366,7 +365,7 @@ void IRClient::ReceiveResponse(uint8_t reqType, char *respBuf) {
     }
 }
 
-void IRClient::HandleUnloggedReply(char *respBuf) {
+void Client::HandleUnloggedReply(char *respBuf) {
     auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
     auto it = pendingUnloggedReqs.find(resp->req_nr);
     if (it == pendingUnloggedReqs.end()) {
@@ -386,12 +385,12 @@ void IRClient::HandleUnloggedReply(char *respBuf) {
     blocked = false;
 }
 
-void IRClient::HandleInconsistentReply(char *respBuf) {
+void Client::HandleInconsistentReply(char *respBuf) {
     // auto *resp = reinterpret_cast<inconsistent_response_t *>(respBuf);
     // if (lastReqId == resp->req_nr)
 }
 
-void IRClient::HandleConsensusReply(char *respBuf) {
+void Client::HandleConsensusReply(char *respBuf) {
     auto *resp = reinterpret_cast<consensus_response_t *>(respBuf);
 
     Debug(
@@ -447,7 +446,7 @@ void IRClient::HandleConsensusReply(char *respBuf) {
     }
 }
 
-void IRClient::HandleFinalizeConsensusReply(char *respBuf) {
+void Client::HandleFinalizeConsensusReply(char *respBuf) {
     auto *resp = reinterpret_cast<finalize_consensus_response_t *>(respBuf);
     auto it = pendingConsensusReqs.find(resp->req_nr);
     if (it == pendingConsensusReqs.end()) {
@@ -489,7 +488,7 @@ void IRClient::HandleFinalizeConsensusReply(char *respBuf) {
     }
 }
 
-void IRClient::UnloggedRequestTimeoutCallback(const uint64_t req_nr) {
+void Client::UnloggedRequestTimeoutCallback(const uint64_t req_nr) {
     auto it = pendingReqs.find(req_nr);
     if (it == pendingReqs.end()) {
         Warning("Received unlogged request timeout when no request was pending");

@@ -2,7 +2,7 @@ d := $(dir $(lastword $(MAKEFILE_LIST)))
 
 SRCS += $(addprefix $(d), benchClient.cc retwisClient.cc terminalClient.cc)
 
-OBJS-all-clients := $(OBJS-meerkatstore-client) $(OBJS-silostore-client)
+OBJS-all-clients := $(OBJS-meerkatstore-client) $(OBJS-meerkatstore-leader-client)
 
 $(d)benchClient: $(OBJS-all-clients) $(o)benchClient.o
 
