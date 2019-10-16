@@ -32,18 +32,13 @@
 #ifndef _MEERKATIR_CLIENT_H_
 #define _MEERKATIR_CLIENT_H_
 
-#include "replication/common/quorumset.h"
 #include "lib/fasttransport.h"
 #include "lib/configuration.h"
 #include "store/common/transaction.h"
 #include "replication/meerkatir/messages.h"
 
 #include <functional>
-#include <map>
 #include <memory>
-#include <set>
-#include <unordered_map>
-#include <boost/functional/hash.hpp>
 #include <boost/unordered_map.hpp>
 
 namespace replication {
@@ -62,7 +57,7 @@ enum class ErrorCode {
     MISMATCHED_CONSENSUS_VIEWS
 };
 
-using result_set_t = std::map<int, std::size_t>;
+using result_set_t = boost::unordered_map<int, std::size_t>;
 using decide_t = std::function<int(const result_set_t &)>;
 using unlogged_continuation_t =
     std::function<void(char *respBuf)>;
@@ -111,30 +106,30 @@ public:
     void ReceiveRequest(uint8_t reqType, char *reqBuf, char *respBuf) override { PPanic("Not implemented."); };
     void ReceiveResponse(uint8_t reqType, char *respBuf) override;
     bool Blocked() override { return blocked; };
+
 protected:
     struct PendingRequest {
         string request;
-        uint64_t clientReqId;
-        uint64_t clienttxn_nr;
+        uint64_t req_nr;
+        uint64_t txn_nr;
         uint8_t core_id;
         continuation_t continuation;
         bool continuationInvoked = false;
         //std::unique_ptr<Timeout> timer;
-        QuorumSet<viewstamp_t, finalize_consensus_response_t> confirmQuorum;
 
         inline PendingRequest() {};
-        inline PendingRequest(string request, uint64_t clientReqId,
-                              uint64_t clienttxn_nr, uint8_t core_id,
-                              continuation_t continuation,
+        inline PendingRequest(string request, uint64_t req_nr,
+                              uint64_t txn_nr, uint8_t core_id,
+                              continuation_t continuation
                               //std::unique_ptr<Timeout> timer,
-                              int quorumSize)
+                              )
             : request(request),
-              clientReqId(clientReqId),
-              clienttxn_nr(clienttxn_nr),
+              req_nr(req_nr),
+              txn_nr(txn_nr),
               core_id(core_id),
-              continuation(continuation),
+              continuation(continuation)
               //timer(std::move(timer)),
-              confirmQuorum(quorumSize){};
+              {};
         virtual ~PendingRequest(){};
     };
 
@@ -149,36 +144,16 @@ protected:
             unlogged_continuation_t get_continuation,
             error_continuation_t error_continuation)
             //std::unique_ptr<Timeout> timer)
-            : PendingRequest(request, clientReqId, clienttxn_nr, core_id, nullptr,
+            : PendingRequest(request, clientReqId, clienttxn_nr, core_id, nullptr
                             //std::move(timer),
-                            1),
+                            ),
               error_continuation(error_continuation),
               get_continuation(get_continuation){};
     };
 
-    struct PendingInconsistentRequest : public PendingRequest {
-        inconsistent_continuation_t inconsistent_continuation;
-        QuorumSet<viewstamp_t, inconsistent_response_t> inconsistentReplyQuorum;
-
-        inline PendingInconsistentRequest(uint64_t clientReqId,
-                                          uint64_t clienttxn_nr, uint8_t core_id,
-                                          inconsistent_continuation_t inconsistent_continuation,
-                                          std::unique_ptr<Timeout> timer,
-                                          int quorumSize)
-            : PendingRequest("", clientReqId, clienttxn_nr, core_id, nullptr,
-                             //std::move(timer),
-                             quorumSize),
-              inconsistent_continuation(inconsistent_continuation),
-              inconsistentReplyQuorum(quorumSize){};
-    };
-
     struct PendingConsensusRequest : public PendingRequest {
-        QuorumSet<opnum_t, consensus_response_t> consensusReplyQuorum;
         decide_t decide;
-        //string decideResult;
         int decidedStatus;
-        std::size_t quorumSize = 0;
-        std::size_t superQuorumSize = 0;
         bool on_slow_path;
         error_continuation_t error_continuation;
         consensus_continuation_t consensus_continuation;
@@ -203,15 +178,12 @@ protected:
             consensus_continuation_t consensus_continuation,
             //std::unique_ptr<Timeout> timer,
             //std::unique_ptr<Timeout> transition_to_slow_path_timer,
-            int quorumSize, int superQuorum, decide_t decide,
+            decide_t decide,
             error_continuation_t error_continuation)
-            : PendingRequest("", clientReqId, clienttxn_nr, core_id, nullptr,
+            : PendingRequest("", clientReqId, clienttxn_nr, core_id, nullptr
                             //std::move(timer),
-                            quorumSize),
-              consensusReplyQuorum(quorumSize),
+                           ),
               decide(decide),
-              quorumSize(quorumSize),
-              superQuorumSize(superQuorum),
               on_slow_path(false),
               error_continuation(error_continuation),
               consensus_continuation(consensus_continuation){};
@@ -221,9 +193,14 @@ protected:
 
     transport::Configuration config;
     uint64_t lastReqId;
-    std::unordered_map<uint64_t, PendingRequest *> pendingReqs;
-    boost::unordered_map<uint64_t, PendingUnloggedRequest> pendingUnloggedReqs;
-    boost::unordered_map<uint64_t, PendingConsensusRequest> pendingConsensusReqs;
+
+    // We assume this client is single-threaded and synchronous,
+    // so we can re-use these structures among consecutive requests
+    boost::unordered_map<int, consensus_response_t> consensusReplyQuorum;
+    boost::unordered_map<int, finalize_consensus_response_t> finalizeReplyQuorum;
+    PendingConsensusRequest crtConsensusReq;
+    PendingUnloggedRequest crtUnloggedReq;
+
     Transport *transport;
     uint64_t clientid;
     bool blocked;
@@ -231,7 +208,7 @@ protected:
     // `TransitionToConsensusSlowPath` is called after a timeout to end the
     // possibility of taking the fast path and transition into taking the slow
     // path.
-    void TransitionToConsensusSlowPath(const uint64_t reqId);
+    void TransitionToConsensusSlowPath();
 
     // HandleSlowPathConsensus is called in one of two scenarios:
     //
@@ -245,11 +222,7 @@ protected:
     //
     // In either case, HandleSlowPathConsensus intitiates the finalize phase of
     // a consensus request.
-    void HandleSlowPathConsensus(
-        const uint64_t reqid,
-        const std::map<int, consensus_response_t> &msgs,
-        const bool finalized_result_found,
-        PendingConsensusRequest *req);
+    void HandleSlowPathConsensus(const bool finalized_result_found);
 
     // HandleFastPathConsensus is called when we're on the fast path and
     // receive a super quorum of responses from the same view.
@@ -259,10 +232,7 @@ protected:
     // Otherwise, it transitions into the slow path which will also initiate
     // the finalize phase of a consensus request, but not yet return to the
     // user.
-    void HandleFastPathConsensus(
-        const uint64_t reqid,
-        const std::map<int, consensus_response_t> &msgs,
-        PendingConsensusRequest *req);
+    void HandleFastPathConsensus();
 
     void UnloggedRequestTimeoutCallback(const uint64_t reqId);
 

@@ -122,7 +122,7 @@ void ShardClient::Prepare(uint64_t txn_nr,
                placeholders::_1), nullptr);
 }
 
-int ShardClient::MeerkatDecide(const std::map<int, std::size_t> &results) {
+int ShardClient::MeerkatDecide(const boost::unordered_map<int, std::size_t> &results) {
     // TODO: re-introduce the retry?
 
     // If a majority say prepare_ok,

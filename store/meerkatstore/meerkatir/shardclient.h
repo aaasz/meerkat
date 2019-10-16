@@ -114,7 +114,7 @@ private:
                        replication::meerkatir::error_continuation_t error_callback);
 
     /* Meerkat's Decide Function. */
-    int MeerkatDecide(const std::map<int, std::size_t> &results);
+    int MeerkatDecide(const boost::unordered_map<int, std::size_t> &results);
 
     /* Timeout for Get requests, which only go to one replica. */
     void GetTimeout();

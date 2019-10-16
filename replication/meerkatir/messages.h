@@ -50,8 +50,6 @@ struct consensus_response_t {
     uint64_t txn_nr;
     uint64_t replicaid;
     uint64_t view;
-    uint64_t timestamp;
-    uint64_t id;
     int status;
     bool finalized;
 };

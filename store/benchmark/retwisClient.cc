@@ -55,7 +55,7 @@ void client_fiber_func(int thread_id,
     // Open file to dump results
     uint32_t global_client_id = FLAGS_nhost * 1000 + FLAGS_ncpu * FLAGS_numClientThreads + thread_id;
     FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_client_id) + ".log").c_str(), "w");
-    uint32_t global_thread_id = FLAGS_nhost * FLAGS_numClientThreads + thread_id;
+    uint32_t global_thread_id = FLAGS_nhost * FLAGS_numClientThreads *FLAGS_numClientFibers + thread_id;
 
     // Trying to distribute as equally as possible the clients on the
     // replica cores.

@@ -68,9 +68,6 @@ Client::Client(const transport::Configuration &config,
 
 Client::~Client()
 {
-    for (auto kv : pendingReqs) {
-        delete kv.second;
-    }
 }
 
 // TODO: make this more general -- the replication layer must not do the app
@@ -118,7 +115,7 @@ void Client::InvokeConsensus(uint64_t txn_nr,
     //        //TransitionToConsensusSlowPath(reqId);
     //    }));
 
-    PendingConsensusRequest req =
+    crtConsensusReq =
         PendingConsensusRequest(reqId,
                                   txn_nr,
                                   core_id,
@@ -127,11 +124,8 @@ void Client::InvokeConsensus(uint64_t txn_nr,
                                   //nullptr,
                                   //std::move(timer),
                                   //std::move(transition_to_slow_path_timer),
-                                  config.QuorumSize(),
-                                  config.FastQuorumSize(),
                                   decide,
                                   error_continuation);
-    pendingConsensusReqs[reqId] = req;
     // TODO: how do we deal with timeouts? (do we need to patch eRPC?)
     //req->transition_to_slow_path_timer->Start();
     //SendConsensus(req);
@@ -171,7 +165,7 @@ void Client::InvokeUnlogged(uint64_t txn_nr,
     //    transport, timeout,
     //    [this, reqId]() { UnloggedRequestTimeoutCallback(reqId); }));
 
-    PendingUnloggedRequest req =
+    crtUnloggedReq =
         PendingUnloggedRequest(request,
                                  reqId,
                                  txn_nr,
@@ -184,7 +178,6 @@ void Client::InvokeUnlogged(uint64_t txn_nr,
     // TODO: find a way to get sending errors (the eRPC's enqueue_request
     // function does not return errors)
     // TODO: deal with timeouts?
-    pendingUnloggedReqs[reqId] = req;
     auto *reqBuf = reinterpret_cast<unlogged_request_t *>(
       transport->GetRequestBuf(
         sizeof(unlogged_request_t),
@@ -222,19 +215,15 @@ void Client::InvokeUnlogged(uint64_t txn_nr,
 //     }
 // }
 
-void Client::HandleSlowPathConsensus(
-            const uint64_t req_nr,
-            const std::map<int, consensus_response_t> &msgs,
-            const bool finalized_result_found,
-            PendingConsensusRequest *req) {
-    ASSERT(finalized_result_found || msgs.size() >= req->quorumSize);
+void Client::HandleSlowPathConsensus(const bool finalized_result_found) {
+    ASSERT(finalized_result_found || consensusReplyQuorum.size() >= config.QuorumSize());
 
     // If a finalized result wasn't found, call decide to determine the
     // finalized result.
     if (!finalized_result_found) {
         uint64_t view = 0;
-        std::map<int, std::size_t> results;
-        for (const auto &p : msgs) {
+        boost::unordered_map<int, std::size_t> results;
+        for (const auto &p : consensusReplyQuorum) {
             const consensus_response_t *r = &p.second;
             results[r->status] += 1;
 
@@ -247,9 +236,9 @@ void Client::HandleSlowPathConsensus(
 
         // Upcall into the application, and put the result in the request
         // to store for later retries.
-        ASSERT(req->decide != NULL);
-        req->decidedStatus = req->decide(results);
-        req->reply_consensus_view = view;
+        ASSERT(crtConsensusReq.decide != NULL);
+        crtConsensusReq.decidedStatus = crtConsensusReq.decide(results);
+        crtConsensusReq.reply_consensus_view = view;
     }
 
     // Set up a new timer for the finalize phase.
@@ -265,43 +254,40 @@ void Client::HandleSlowPathConsensus(
         sizeof(finalize_consensus_response_t)
       )
     );
-    reqBuf->req_nr = req_nr;
+    reqBuf->req_nr = crtConsensusReq.req_nr;
     reqBuf->client_id = clientid;
-    reqBuf->status = req->decidedStatus;
-    reqBuf->txn_nr = req->clienttxn_nr;
+    reqBuf->status = crtConsensusReq.decidedStatus;
+    reqBuf->txn_nr = crtConsensusReq.txn_nr;
 
-    req->sent_confirms = true;
+    crtConsensusReq.sent_confirms = true;
     //req->timer->Start();
     transport->SendRequestToAll(this,
                                 finalizeConsensusReqType,
-                                req->core_id,
+                                crtConsensusReq.core_id,
                                 sizeof(finalize_consensus_request_t));
 }
 
-void Client::HandleFastPathConsensus(
-            const uint64_t req_nr,
-            const std::map<int, consensus_response_t> &msgs,
-            PendingConsensusRequest *req) {
-    ASSERT(msgs.size() >= req->superQuorumSize);
-    Debug("Handling fast path for request %lu.", req_nr);
+void Client::HandleFastPathConsensus() {
+    ASSERT(consensusReplyQuorum.size() >= config.FastQuorumSize());
+    Debug("Handling fast path for request %lu.", crtConsensusReq.req_nr);
 
     // We've received a super quorum of responses. Now, we have to check to see
     // if we have a super quorum of _matching_ responses.
-    std::map<int, std::size_t> results;
-    for (const auto &m : msgs) {
+    boost::unordered_map<int, std::size_t> results;
+    for (const auto &m : consensusReplyQuorum) {
         const int result = m.second.status;
         results[result]++;
     }
 
     for (const auto &result : results) {
-        if (result.second < req->superQuorumSize) {
+        if (result.second < config.FastQuorumSize()) {
             continue;
         }
 
         // A super quorum of matching requests was found!
         Debug("A super quorum of matching requests was found for request %lu.",
-              req_nr);
-        req->decidedStatus = result.first;
+              crtConsensusReq.req_nr);
+        crtConsensusReq.decidedStatus = result.first;
 
         // Stop the transition to slow path timer
         //req->transition_to_slow_path_timer->Stop();
@@ -310,24 +296,26 @@ void Client::HandleFastPathConsensus(
         // the client will immediately send the inconsistent request to commit/abort
 
         // Return to the client.
-        if (!req->continuationInvoked) {
-            req->consensus_continuation(req->decidedStatus);
-            req->continuationInvoked = true;
-            blocked = false;
+        if (!crtConsensusReq.continuationInvoked) {
+            crtConsensusReq.consensus_continuation(crtConsensusReq.decidedStatus);
+            crtConsensusReq.continuationInvoked = true;
         }
-        pendingConsensusReqs.erase(req_nr);
+
+        blocked = false;
+        consensusReplyQuorum.clear();
+        crtConsensusReq.req_nr = 0;
         return;
     }
 
     // There was not a super quorum of matching results, so we transition into
     // the slow path.
     Debug("A super quorum of matching requests was NOT found for request %lu.",
-          req_nr);
-    req->on_slow_path = true;
+          crtConsensusReq.req_nr);
+    crtConsensusReq.on_slow_path = true;
     //if (req->transition_to_slow_path_timer) {
     //    req->transition_to_slow_path_timer.reset();
     //}
-    HandleSlowPathConsensus(req_nr, msgs, false, req);
+    HandleSlowPathConsensus(false);
 }
 
 void Client::ReceiveResponse(uint8_t reqType, char *respBuf) {
@@ -352,22 +340,20 @@ void Client::ReceiveResponse(uint8_t reqType, char *respBuf) {
 
 void Client::HandleUnloggedReply(char *respBuf) {
     auto *resp = reinterpret_cast<unlogged_response_t *>(respBuf);
-    auto it = pendingUnloggedReqs.find(resp->req_nr);
-    if (it == pendingUnloggedReqs.end()) {
+    if (resp->req_nr != crtUnloggedReq.req_nr) {
         Warning("Received unlogged reply when no request was pending; req_nr = %lu", resp->req_nr);
         return;
     }
-    PendingUnloggedRequest req = (PendingUnloggedRequest)it->second;
 
     Debug("[%lu] Received unlogged reply", clientid);
 
     // delete timer event
     //req->timer->Stop();
     // invoke application callback
-    req.get_continuation(respBuf);
+    crtUnloggedReq.get_continuation(respBuf);
     // remove from pending list
-    pendingUnloggedReqs.erase(resp->req_nr);
     blocked = false;
+    crtUnloggedReq.req_nr = 0;
 }
 
 void Client::HandleInconsistentReply(char *respBuf) {
@@ -383,8 +369,7 @@ void Client::HandleConsensusReply(char *respBuf) {
         "request %lu.",
         resp->replicaid, resp->view, resp->req_nr);
 
-    auto it = pendingConsensusReqs.find(resp->req_nr);
-    if (it == pendingConsensusReqs.end()) {
+    if (resp->req_nr != crtConsensusReq.req_nr) {
         Warning(
             "Client was not expecting a ReplyConsensusMessage for request %lu, "
             "so it is ignoring the request.",
@@ -392,10 +377,9 @@ void Client::HandleConsensusReply(char *respBuf) {
         return;
     }
 
-    PendingConsensusRequest* req = &it->second;
     //ASSERT(req != nullptr);
 
-    if (req->sent_confirms) {
+    if (crtConsensusReq.sent_confirms) {
         Debug(
             "Client has already received a quorum or super quorum of "
             "HandleConsensusReply for request %lu and has already sent out "
@@ -405,36 +389,33 @@ void Client::HandleConsensusReply(char *respBuf) {
     }
 
     // save the response
-    req->consensusReplyQuorum.Add(resp->view, resp->replicaid, *resp);
-    const std::map<int, consensus_response_t> &msgs =
-        req->consensusReplyQuorum.GetMessages(resp->view);
-
-    Debug("Nr replies so far = %lu; quorumset = %p.", msgs.size(), &req->consensusReplyQuorum);
+    //req->consensusReplyQuorum.Add(resp->view, resp->replicaid, *resp);
+    // TODO: check view number
+    consensusReplyQuorum[resp->replicaid] = *resp;
 
     if (resp->finalized) {
         Debug("The HandleConsensusReply for request %lu was finalized.", resp->req_nr);
         // If we receive a finalized message, then we immediately transition
         // into the slow path.
-        req->on_slow_path = true;
+        crtConsensusReq.on_slow_path = true;
         //if (req->transition_to_slow_path_timer) {
         //    req->transition_to_slow_path_timer.reset();
         //}
 
-        req->decidedStatus = resp->status;
-        req->reply_consensus_view = resp->view;
+        crtConsensusReq.decidedStatus = resp->status;
+        crtConsensusReq.reply_consensus_view = resp->view;
         // TODO: what if finalize in a different view?
-        HandleSlowPathConsensus(resp->req_nr, msgs, true, req);
-    } else if (req->on_slow_path && msgs.size() >= req->quorumSize) {
-        HandleSlowPathConsensus(resp->req_nr, msgs, false, req);
-    } else if (!req->on_slow_path && msgs.size() >= req->superQuorumSize) {
-        HandleFastPathConsensus(resp->req_nr, msgs, req);
+        HandleSlowPathConsensus(true);
+    } else if (crtConsensusReq.on_slow_path && consensusReplyQuorum.size() >= config.QuorumSize()) {
+        HandleSlowPathConsensus(false);
+    } else if (!crtConsensusReq.on_slow_path && consensusReplyQuorum.size() >= config.FastQuorumSize()) {
+        HandleFastPathConsensus();
     }
 }
 
 void Client::HandleFinalizeConsensusReply(char *respBuf) {
     auto *resp = reinterpret_cast<finalize_consensus_response_t *>(respBuf);
-    auto it = pendingConsensusReqs.find(resp->req_nr);
-    if (it == pendingConsensusReqs.end()) {
+    if (resp->req_nr != crtConsensusReq.req_nr) {
         Debug(
             "We received a FinalizeConsensusReply for operation %lu, but we weren't "
             "waiting for any FinalizeConsensusReply. We are ignoring the message.",
@@ -447,53 +428,31 @@ void Client::HandleFinalizeConsensusReply(char *respBuf) {
         "request %lu.",
         resp->replicaid, resp->view, resp->req_nr);
 
-    PendingConsensusRequest *req = &it->second;
-
-    viewstamp_t vs = { resp->view, resp->req_nr };
-    if (req->confirmQuorum.AddAndCheckForQuorum(vs, resp->replicaid, *resp)) {
+    // TODO: check view
+    finalizeReplyQuorum[resp->replicaid] = *resp;
+    if (finalizeReplyQuorum.size() >= config.QuorumSize()) {
         //req->timer->Stop();
-        if (!req->continuationInvoked) {
+        if (!crtConsensusReq.continuationInvoked) {
             // Return to the client.
-            if (vs.view == req->reply_consensus_view) {
-                req->consensus_continuation(req->decidedStatus);
+            if (resp->view == crtConsensusReq.reply_consensus_view) {
+                crtConsensusReq.consensus_continuation(crtConsensusReq.decidedStatus);
             } else {
                 Debug(
                     "We received a majority of ConfirmMessages for request %lu "
                     "with view %lu, but the view from ReplyConsensusMessages "
                     "was %lu.",
-                    resp->req_nr, vs.view, req->reply_consensus_view);
-                if (req->error_continuation) {
-                    req->error_continuation(
-                        req->request, ErrorCode::MISMATCHED_CONSENSUS_VIEWS);
+                    resp->req_nr, resp->view, crtConsensusReq.reply_consensus_view);
+                if (crtConsensusReq.error_continuation) {
+                    crtConsensusReq.error_continuation(
+                        crtConsensusReq.request, ErrorCode::MISMATCHED_CONSENSUS_VIEWS);
                 }
             }
         }
-        pendingConsensusReqs.erase(resp->req_nr);
         blocked = false;
+        finalizeReplyQuorum.clear();
+        consensusReplyQuorum.clear();
+        crtConsensusReq.req_nr = 0;
     }
-}
-
-void Client::UnloggedRequestTimeoutCallback(const uint64_t req_nr) {
-    auto it = pendingReqs.find(req_nr);
-    if (it == pendingReqs.end()) {
-        Warning("Received unlogged request timeout when no request was pending");
-        return;
-    }
-
-    PendingUnloggedRequest *req = static_cast<PendingUnloggedRequest *>(it->second);
-    ASSERT(req != NULL);
-
-    Warning("Unlogged request timed out: %lu", req_nr);
-
-    // delete timer event
-    //req->timer->Stop();
-    // remove from pending list
-    pendingUnloggedReqs.erase(req_nr);
-    // invoke application callback
-    if (req->error_continuation) {
-        req->error_continuation(req->request, ErrorCode::TIMEOUT);
-    }
-    delete req;
 }
 
 } // namespace ir

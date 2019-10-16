@@ -44,19 +44,17 @@ using namespace std;
 void Server::ExecInconsistentUpcall(txnid_t txn_id,
                             replication::RecordEntry *crt_txn_state,
                             bool commit) {
+
+    if (crt_txn_state->txn_status == NOT_PREPARED) {
+        // TODO: get state from other replicas
+        Warning("Trying to abort an un-prepared transaction.");
+    }
+
     if (commit) {
-        if (crt_txn_state->txn_status == NOT_PREPARED) {
-            // TODO: get state from other replicas
-            Warning("Trying to commit an un-prepared transaction.");
-        }
         if (crt_txn_state->txn_status != COMMITTED)
             store->Commit(txn_id, crt_txn_state->ts, crt_txn_state->txn);
         crt_txn_state->txn_status = COMMITTED;
     } else {
-        if (crt_txn_state->txn_status == NOT_PREPARED) {
-            // TODO: get state from other replicas
-            Warning("Trying to abort an un-prepared transaction.");
-        }
         if (crt_txn_state->txn_status != ABORTED)
             store->Abort(txn_id, crt_txn_state->txn);
         crt_txn_state->txn_status = ABORTED;
@@ -87,10 +85,6 @@ void Server::ExecConsensusUpcall(txnid_t txn_id,
                                 crt_txn_state->ts,
                                 proposed);
         resp->status = status;
-        if (proposed.isValid()) {
-            resp->id = proposed.getID();
-            resp->timestamp = proposed.getTimestamp();
-        }
 
         // TODO: merge status with transaction status
         if (status == REPLY_OK) {
@@ -105,7 +99,7 @@ void Server::ExecConsensusUpcall(txnid_t txn_id,
 
 void Server::UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) {
     Debug("Received Unlogged Request: %s", reqBuf);
-    pair<Timestamp, string> val;
+    std::pair<Timestamp, string> val;
 
     auto *req = reinterpret_cast<replication::meerkatir::unlogged_request_t *>(reqBuf);
     std::string key = string(req->key, 64);

@@ -1,8 +1,9 @@
 // -*- mode: c++; c-file-style: "k&r"; c-basic-offset: 4 -*-
 /***********************************************************************
  *
- * store/tapirstore/client.h:
- *   Tapir client interface.
+ * store/meerkatstore/meerkatir/client.h:
+ *   Meerkatir client interface (uses meerkatir for replcation and the
+ *   meerkatstore transactional storage system).
  *
  * Copyright 2015 Irene Zhang  <iyzhang@cs.washington.edu>
  *                Naveen Kr. Sharma <naveenks@cs.washington.edu>
@@ -32,24 +33,24 @@
 #ifndef _MEERKATSTORE_LEADERMEERKATIR_CLIENT_H_
 #define _MEERKATSTORE_LEADERMEERKATIR_CLIENT_H_
 
-#include <memory>
-#include <thread>
-
 #include "lib/assert.h"
-#include "lib/configuration.h"
 #include "lib/message.h"
-#include "replication/leadermeerkatir/client.h"
-#include "store/common/frontend/bufferclient.h"
-#include "store/common/frontend/client.h"
+#include "lib/configuration.h"
+#include "lib/fasttransport.h"
+#include "replication/meerkatir/client.h"
 #include "store/common/timestamp.h"
 #include "store/common/truetime.h"
-#include "store/meerkatstore/config.h"
+#include "store/common/frontend/client.h"
+#include "store/common/frontend/bufferclient.h"
 #include "store/meerkatstore/leadermeerkatir/shardclient.h"
+
+#include <thread>
 
 namespace meerkatstore {
 namespace leadermeerkatir {
 
-class Client : public ::Client {
+class Client : public ::Client
+{
 public:
     Client(const transport::Configuration &config,
         Transport *transport,
@@ -82,23 +83,11 @@ private:
     uint8_t preferred_thread_id;
     uint8_t preferred_read_thread_id;
 
-    // Number of shards.
-    uint64_t nshards;
-
-    // List of participants in the ongoing transaction.
-    std::set<int> participants;
-
-    std::thread transport_thread;
-
-    // Shard client and corresponding Buffering client for each shard.
-    std::vector<std::unique_ptr<TxnClient>> shard_clients;
-    std::vector<std::unique_ptr<BufferClient>> bclient;
+    // Buffering client.
+    BufferClient *bclient;
 
     // TrueTime server.
     TrueTime timeServer;
-
-    // config parameter
-    const string replScheme;
 
     // select core_id for the current transaction from a uniform distribution
     std::mt19937 core_gen;
@@ -108,7 +97,7 @@ private:
     int Prepare(Timestamp &timestamp);
 };
 
-}  // namespace leadermeerkatir
-}  // namespace meerkatstore
+} // namespace leadermeerkatir
+} // namespace meerkatstore
 
 #endif /* _MEERKATSTORE_LEADERMEERKATIR_CLIENT_H_ */

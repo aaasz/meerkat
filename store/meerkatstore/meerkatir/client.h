@@ -83,18 +83,8 @@ private:
     uint8_t preferred_thread_id;
     uint8_t preferred_read_thread_id;
 
-    // Number of shards.
-    uint64_t nshards;
-
-    // Number of retries for current transaction.
-    long retries;
-
-    // List of participants in the ongoing transaction.
-    std::set<int> participants;
-
-    // Shard client and corresponding Buffering client for each shard.
-    std::vector<std::unique_ptr<TxnClient>> shard_clients;
-    std::vector<std::unique_ptr<BufferClient>> bclient;
+    // Buffering client.
+    BufferClient *bclient;
 
     // TrueTime server.
     TrueTime timeServer;
