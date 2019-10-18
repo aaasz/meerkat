@@ -73,6 +73,7 @@ struct inconsistent_request_t {
     operation_id_t operation_id;
     uint64_t transaction_number;
     bool commit;
+    timestamp_t timestamp;
 };
 
 // TODO(mwhittaker): Add view?

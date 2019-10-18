@@ -28,59 +28,44 @@
  *
  **********************************************************************/
 
-#ifndef _TAPIRSTORE_STORE_H_
-#define _TAPIRSTORE_STORE_H_
+#ifndef _TAPIRSTORE_SERVER_H_
+#define _TAPIRSTORE_SERVER_H_
 
-#include <set>
-#include <unordered_map>
-
-#include <boost/functional/hash.hpp>
-#include <boost/unordered_map.hpp>
-
-#include "lib/assert.h"
-#include "lib/message.h"
-#include "store/common/backend/txnstore.h"
-#include "store/common/backend/versionstore.h"
+#include "replication/tapirir/replica.h"
 #include "store/common/timestamp.h"
-#include "store/common/transaction.h"
+#include "store/common/truetime.h"
+#include "store/tapirstore/store.h"
 
 namespace tapirstore {
 
-class Store : public TxnStore
+class Server : public replication::tapirir::IRAppReplica
 {
-
 public:
-    Store(bool linearizable) : linearizable(linearizable) {}
+    Server(bool linearizable) : store(linearizable) {}
 
-    int Get(const std::string &key, std::pair<Timestamp, std::string> &value)
-        override;
-    int Prepare(txnid_t txn_id, const Transaction &txn,
-                const Timestamp &timestamp, Timestamp &proposed) override;
-    // The TxnStore interface has us pass in a timestamp and transaction,
-    // though TAPIR actually ignores the transaction. The transaction was
-    // received in the Prepare.
-    void Commit(txnid_t txn_id, const Timestamp &timestamp,
-                const Transaction &txn = Transaction()) override;
-    void Abort(txnid_t txn_id, const Transaction &txn = Transaction()) override;
+    void UnloggedUpcall(char *request_buffer, char *response_buffer,
+                        size_t &response_length) override;
+    void InconsistentUpcall(
+        const replication::tapirir::inconsistent_request_t& request) override;
+    void ConsensusUpcall(txnid_t txn_id,
+                         replication::tapirir::timestamp_t timestamp,
+                         Transaction transaction,
+                         replication::tapirir::consensus_response_t* response)
+                         override;
     void Load(const std::string &key, const std::string &value,
-              const Timestamp &timestamp) override;
+              const Timestamp timestamp);
+    void PrintStats();
 
 private:
-    // Are we running in linearizable (vs serializable) mode?
-    bool linearizable;
+    Store store;
 
-    VersionedKVStore store;
-
-    // TODO: comment this.
-    boost::unordered_map<txnid_t, std::pair<Timestamp, Transaction>> prepared;
-
-    void GetPreparedWrites(std::unordered_map< std::string,
-                           std::set<Timestamp> > &writes);
-    void GetPreparedReads(std::unordered_map<std::string,
-                          std::set<Timestamp>> &reads);
-    void Commit(const Timestamp &timestamp, const Transaction &txn);
+    // Latencies in microseconds.
+    std::vector<long> latency_get_us;
+    std::vector<long> latency_prepare_us;
+    std::vector<long> latency_commit_us;
+    std::vector<long> latency_abort_us;
 };
 
 } // namespace tapirstore
 
-#endif /* _TAPIRSTORE_STORE_H_ */
+#endif /* _TAPIRSTORE_SERVER_H_ */

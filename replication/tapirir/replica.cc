@@ -211,7 +211,6 @@ void IRReplica::HandleConsensusRequest(char *request_buffer,
         response->operation_id = request->operation_id;
         response->transaction_number = request->transaction_number;
         response->replica_index = my_index;
-        response->timestamp = request->timestamp;
         response->finalized = false;
         response_length = sizeof(consensus_response_t);
 
