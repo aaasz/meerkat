@@ -58,10 +58,6 @@ IRReplica::IRReplica(transport::Configuration config, int my_index,
 
 void IRReplica::ReceiveRequest(uint8_t request_type, char *request_buffer,
                                char *response_buffer) {
-#if TAPIRIR_MEASURE_APP_TIMES
-    struct timespec s, e;
-    clock_gettime(CLOCK_REALTIME, &s);
-#endif
     size_t response_length;
     switch(request_type) {
         case UNLOGGED_REQUEST:
@@ -88,11 +84,6 @@ void IRReplica::ReceiveRequest(uint8_t request_type, char *request_buffer,
             Warning("Unrecognized rquest type: %d", request_type);
             break;
     }
-#if TAPIRIR_MEASURE_APP_TIMES
-    clock_gettime(CLOCK_REALTIME, &e);
-    double latency_us = (e.tv_nsec - s.tv_nsec) / 1000.0 * kAppLatFac;
-    latency_unlogged_us.push_back(static_cast<uint64_t>(latency_us));
-#endif
 
     if (!(transport->SendResponse(response_length))) {
         Warning("Failed to send reply message");
@@ -102,7 +93,18 @@ void IRReplica::ReceiveRequest(uint8_t request_type, char *request_buffer,
 void IRReplica::HandleUnloggedRequest(char *request_buffer,
                                       char *response_buffer,
                                       size_t &response_length) {
+#if TAPIRIR_MEASURE_APP_TIMES
+    struct timespec s, e;
+    clock_gettime(CLOCK_REALTIME, &s);
+#endif
+
     app->UnloggedUpcall(request_buffer, response_buffer, response_length);
+
+#if TAPIRIR_MEASURE_APP_TIMES
+    clock_gettime(CLOCK_REALTIME, &e);
+    double latency_us = (e.tv_nsec - s.tv_nsec) / 1000.0 * kAppLatFac;
+    latency_unlogged_us.push_back(static_cast<uint64_t>(latency_us));
+#endif
 }
 
 void IRReplica::HandleInconsistentRequest(char *request_buffer,
@@ -260,6 +262,7 @@ void IRReplica::HandleFinalizeConsensusRequest(char *request_buffer,
         auto *response = reinterpret_cast<consensus_response_t *>(
             entry.result.data());
         response->status = request->status;
+        response->timestamp = request->timestamp;
         response->finalized = true;
 
         // Update our record.
