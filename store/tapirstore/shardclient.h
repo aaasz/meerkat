@@ -85,7 +85,8 @@ private:
     void AbortCallback();
 
     // Decide function.
-    int TapirDecide(const std::map<int, std::size_t>& results);
+    std::pair<int, Timestamp> TapirDecide(
+            const std::map<std::pair<int, Timestamp>, std::size_t>& results);
 
     // Error timeouts.
     void GetTimeout();

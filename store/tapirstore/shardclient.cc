@@ -149,26 +149,36 @@ ShardClient::GetTimeout()
     }
 }
 
-int
-ShardClient::TapirDecide(const std::map<int, std::size_t> &results)
+std::pair<int, Timestamp>
+ShardClient::TapirDecide(
+        const std::map<std::pair<int, Timestamp>, std::size_t>& results)
 {
     // TODO(mwhittaker): We implement the decide function like meerkat does,
     // not like TAPIR does.
 
+    Timestamp timestamp;
     int ok_count = 0;
-    for (const auto& status_and_count : results) {
-        const int status = status_and_count.first;
-        const std::size_t count = status_and_count.second;
 
-        if (status == REPLY_OK) {
+    for (const auto& result_and_count : results) {
+        const std::pair<int, Timestamp> result = result_and_count.first;
+        const std::size_t count = result_and_count.second;
+
+        if (result.first == REPLY_OK) {
             ok_count += count;
-        } else if (status == REPLY_FAIL) {
-            return REPLY_FAIL;
+        } else if (result.first == REPLY_FAIL) {
+            return {REPLY_FAIL, Timestamp()};
+        } else if (result.first == REPLY_RETRY) {
+            if (result.second > timestamp) {
+                timestamp = result.second;
+            }
         }
     }
 
-    ASSERT(ok_count >= config->QuorumSize());
-    return REPLY_OK;
+    if (ok_count >= config.QuorumSize()) {
+        return {REPLY_OK, Timestamp()};
+    } else {
+        return {REPLY_RETRY, timestamp};
+    }
 }
 
 void
