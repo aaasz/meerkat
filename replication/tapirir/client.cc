@@ -249,7 +249,10 @@ void IRClient::HandleConsensusReply(char *respBuf) {
         // Update our metadata.
         pending_slow_paths.insert({
             response->operation_id.client_request_number,
-            PendingSlowPath(response->status, pending_consensus.continuation,
+            PendingSlowPath(response->status,
+                            Timestamp(response->timestamp.timestamp,
+                                      response->timestamp.client_id),
+                            pending_consensus.continuation,
                             pending_consensus.error_continuation)
         });
 
@@ -259,6 +262,7 @@ void IRClient::HandleConsensusReply(char *respBuf) {
         request_buffer->operation_id = response->operation_id;
         request_buffer->transaction_number = response->transaction_number;
         request_buffer->status = response->status;
+        request_buffer->timestamp = response->timestamp;
         transport->SendRequestToAll(this,
                                     FINALIZE_CONSENSUS_REQUEST,
                                     pending_consensus.core_id,
@@ -276,14 +280,18 @@ void IRClient::HandleConsensusReply(char *respBuf) {
         }
 
         // We've received a super quorum of responses. Now, we have to check to
-        // see if we have a super quorum of _matching_ responses. `statuses` is
-        // a histogram of the returned statuses.
-        std::map<int, std::size_t> statuses;
+        // see if we have a super quorum of _matching_ responses. `results` is
+        // a histogram of the returned results. Every element is a pair of a
+        // status (e.g., REPLY_OK, REPLY_RETRY) and a timestamp if the status
+        // is REPLY_RETRY.
+        std::map<std::pair<int, Timestamp>, std::size_t> results;
         for (const auto& kv : quorum) {
-            statuses[kv.second.status]++;
+            results[{kv.second.status,
+                     Timestamp(kv.second.timestamp.timestamp,
+                               kv.second.timestamp.client_id)}]++;
         }
 
-        for (const auto &kv : statuses) {
+        for (const auto &kv : results) {
             if (kv.second < config.FastQuorumSize()) {
                 continue;
             }
@@ -295,14 +303,16 @@ void IRClient::HandleConsensusReply(char *respBuf) {
                 transport->GetRequestBuf());
             request_buffer->operation_id = response->operation_id;
             request_buffer->transaction_number = response->transaction_number;
-            request_buffer->status = kv.first;
+            request_buffer->status = kv.first.first;
+            request_buffer->timestamp.timestamp = kv.first.second.getTimestamp();
+            request_buffer->timestamp.client_id = kv.first.second.getID();
             transport->SendRequestToAll(this,
                                         FINALIZE_CONSENSUS_REQUEST,
                                         pending_consensus.core_id,
                                         sizeof(finalize_consensus_request_t));
 
             // Invoke the continuation and unblock.
-            pending_consensus.continuation(kv.first);
+            pending_consensus.continuation(kv.first.first, kv.first.second);
             ASSERT(blocked);
             blocked = false;
             pending_consensus_requests.erase(it);
@@ -311,10 +321,12 @@ void IRClient::HandleConsensusReply(char *respBuf) {
 
         // There was not a super quorum of matching results, so we transition
         // into the slow path.
-        const int decided_status = pending_consensus.decide(statuses);
+        const std::pair<int, Timestamp> decided_result =
+            pending_consensus.decide(results);
         pending_slow_paths.insert({
             response->operation_id.client_request_number,
-            PendingSlowPath(decided_status, pending_consensus.continuation,
+            PendingSlowPath(decided_result.first, decided_result.second,
+                            pending_consensus.continuation,
                             pending_consensus.error_continuation)
         });
 
@@ -323,7 +335,10 @@ void IRClient::HandleConsensusReply(char *respBuf) {
                 transport->GetRequestBuf());
         request_buffer->operation_id = response->operation_id;
         request_buffer->transaction_number = response->transaction_number;
-        request_buffer->status = decided_status;
+        request_buffer->status = decided_result.first;
+        request_buffer->timestamp.timestamp =
+            decided_result.second.getTimestamp();
+        request_buffer->timestamp.client_id = decided_result.second.getID();
         transport->SendRequestToAll(this,
                                     FINALIZE_CONSENSUS_REQUEST,
                                     pending_consensus.core_id,
@@ -352,7 +367,7 @@ void IRClient::HandleFinalizeConsensusReply(char *respBuf) {
     }
 
     // Invoke the continuation and unblock.
-    pending.continuation(pending.decided_status);
+    pending.continuation(pending.decided_status, pending.timestamp);
     ASSERT(blocked);
     blocked = false;
     pending_slow_paths.erase(it);

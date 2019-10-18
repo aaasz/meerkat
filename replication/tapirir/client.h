@@ -31,19 +31,20 @@
 #ifndef _TAPIRIR_CLIENT_H_
 #define _TAPIRIR_CLIENT_H_
 
-#include "lib/configuration.h"
-#include "lib/fasttransport.h"
-#include "replication/common/quorumset.h"
-#include "replication/tapirir/messages.h"
-#include "store/common/transaction.h"
-
-#include <boost/functional/hash.hpp>
-#include <boost/unordered_map.hpp>
 #include <functional>
 #include <map>
 #include <memory>
 #include <set>
 #include <unordered_map>
+
+#include <boost/functional/hash.hpp>
+#include <boost/unordered_map.hpp>
+
+#include "lib/configuration.h"
+#include "lib/fasttransport.h"
+#include "replication/common/quorumset.h"
+#include "replication/tapirir/messages.h"
+#include "store/common/transaction.h"
 
 namespace replication {
 namespace tapirir {
@@ -72,11 +73,14 @@ enum class ErrorCode {
     MISMATCHED_CONSENSUS_VIEWS
 };
 
-using result_set_t = std::map<int, std::size_t>;
-using decide_t = std::function<int(const result_set_t &)>;
+// TODO(mwhittaker): Need to decide not only on the status but also potentially
+// the new timestamp if the status is RETRY.
+using result_set_t = std::map<std::pair<int, Timestamp>, std::size_t>;
+using decide_t = std::function<std::pair<int, Timestamp>(const result_set_t &)>;
 using unlogged_continuation_t = std::function<void(char *respBuf)>;
 using inconsistent_continuation_t = std::function<void()>;
-using consensus_continuation_t = std::function<void(int decidedStatus)>;
+using consensus_continuation_t =
+    std::function<void(int decided_status, const Timestamp& timestamp)>;
 using error_continuation_t =
     std::function<void(const string &request, ErrorCode err)>;
 
@@ -173,8 +177,9 @@ protected:
     // TODO(mwhittaker): Implement timeouts. Meerkat doesn't implement
     // timeouts, so neither do we :).
     struct PendingSlowPath {
-        // The final status of the request.
+        // The final status and timestsamp of the request.
         int decided_status;
+        Timestamp timestamp;
 
         // Callbacks.
         consensus_continuation_t continuation;
@@ -184,9 +189,11 @@ protected:
         QuorumSet<monostate, monostate> quorum_set;
 
         PendingSlowPath(int decided_status,
+                        Timestamp timestamp,
                         consensus_continuation_t continuation,
                         error_continuation_t error_continuation)
             : decided_status(decided_status),
+              timestamp(timestamp),
               continuation(continuation),
               error_continuation(error_continuation) {}
     };
