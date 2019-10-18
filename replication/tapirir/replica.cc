@@ -38,8 +38,6 @@
 
 #define TAPIRIR_MEASURE_APP_TIMES false
 
-static constexpr double kAppLatFac = 10.0;
-
 namespace replication {
 namespace tapirir {
 
