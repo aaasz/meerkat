@@ -283,6 +283,7 @@ void IRReplica::HandleFinalizeConsensusRequest(char *request_buffer,
 }
 
 void PrintStat(std::vector<uint64_t>* measurements) {
+#if IRREPLICA_MEASURE_APP_TIMES
     std::sort(measurements->begin(), measurements->end());
     double p50 = (*measurements)[measurements->size() * 50 / 100] / kAppLatFac;
     double p99 = (*measurements)[measurements->size() * 99 / 100] / kAppLatFac;
@@ -293,11 +294,12 @@ void PrintStat(std::vector<uint64_t>* measurements) {
               << "  avg  = " << avg << std::endl
               << "  p50  = " << p50 << std::endl
               << "  p99  = " << p99 << std::endl;
+#endif
 }
 
 void
 IRReplica::PrintStats() {
-#if  IRREPLICA_MEASURE_APP_TIMES
+#if IRREPLICA_MEASURE_APP_TIMES
     std::cerr << "Unlogged latency." << std::endl;
     PrintStat(&latency_unlogged_us);
     std::cerr << "Inconsistent latency." << std::endl;

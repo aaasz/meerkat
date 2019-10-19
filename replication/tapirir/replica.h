@@ -78,6 +78,9 @@ public:
         return false;
     }
 
+    // Helper to print statistics about various requests.
+    void PrintStats();
+
 private:
     // Message handlers. ///////////////////////////////////////////////////////
     void HandleUnloggedRequest(char *request_buffer, char *response_buffer,
@@ -92,9 +95,6 @@ private:
     void HandleFinalizeConsensusRequest(char *request_buffer,
                                         char *response_buffer,
                                         size_t &response_length);
-
-    // Helper to print statistics about various requests.
-    void PrintStats();
 
     transport::Configuration config;
 
