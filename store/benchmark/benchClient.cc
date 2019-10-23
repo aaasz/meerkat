@@ -25,10 +25,10 @@ int rand_key();
 bool ready = false;
 double *zipf;
 vector<string> keys;
-std::mt19937 key_gen;
-vector<std::uniform_int_distribution<uint32_t>> keys_distributions;
-thread_local std::uniform_int_distribution<uint32_t> key_dis;
 
+thread_local std::random_device rd;
+thread_local std::mt19937 key_gen;
+thread_local std::uniform_int_distribution<uint32_t> key_dis;
 
 // TODO(mwhittaker): Make command line flags.
 bool twopc = false;
@@ -40,17 +40,7 @@ void client_fiber_func(int thread_id,
     Client* client;
     vector<string> results;
 
-    std::mt19937 core_gen;
-    std::mt19937 replica_gen;
-    //std::uniform_int_distribution<uint32_t> core_dis(0, FLAGS_numServerThreads - 1);
-    //std::uniform_int_distribution<uint32_t> replica_dis(0, nReplicas - 1);
-    std::random_device rd;
-    uint8_t preferred_thread_id;
     uint32_t localReplica = -1;
-
-    core_gen = std::mt19937(rd());
-    replica_gen = std::mt19937(rd());
-    key_dis = std::uniform_int_distribution<uint32_t>(0, FLAGS_numKeys - 1);
 
     // Open file to dump results
     uint32_t global_client_id = FLAGS_nhost * 1000 + FLAGS_ncpu * FLAGS_numClientThreads + thread_id;
@@ -60,10 +50,8 @@ void client_fiber_func(int thread_id,
     // Trying to distribute as equally as possible the clients on the
     // replica cores.
 
-    //preferred_core_id = core_dis(core_gen);
-
     // pick the prepare and commit thread on the replicas in a round-robin fashion
-    preferred_thread_id = global_thread_id % FLAGS_numServerThreads;
+    uint8_t preferred_thread_id = global_thread_id % FLAGS_numServerThreads;
 
     // pick the replica and thread id for read in a round-robin fashion
     int global_preferred_read_thread_id  = global_thread_id % (FLAGS_numServerThreads * config.n);
@@ -135,7 +123,7 @@ void client_fiber_func(int thread_id,
 
         for (int j = 0; j < FLAGS_tLen; j++) {
             key = keys[rand_key()];
-        
+
             int coin = rand() % 2;
             if (coin == 0) {
                 // write priority
@@ -214,6 +202,11 @@ void client_fiber_func(int thread_id,
 }
 
 void* client_thread_func(int thread_id, transport::Configuration config) {
+
+    // Initialize the uniform distribution
+    key_gen = std::mt19937(rd());
+    key_dis = std::uniform_int_distribution<uint32_t>(0, FLAGS_numKeys - 1);
+
     // create the transport
     FastTransport *transport = new FastTransport(config,
                                                 FLAGS_ip,
@@ -255,10 +248,6 @@ int main(int argc, char **argv) {
     sa.sa_flags   = SA_SIGINFO;
 
     sigaction(SIGSEGV, &sa, NULL);
-
-    // initialize the uniform distribution
-    std::random_device rd;
-    key_gen = std::mt19937(rd());
 
     // Read in the keys from a file.
     string key, value;
